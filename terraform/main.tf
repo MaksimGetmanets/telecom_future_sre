@@ -58,3 +58,32 @@ resource "helm_release" "podinfo" {
 
   depends_on = [helm_release.kps]
 }
+
+resource "helm_release" "loki" {
+  name       = "loki"
+  namespace  = "monitoring"
+  repository = "https://grafana.github.io/helm-charts"
+  chart      = "loki"
+  timeout    = 600
+  values     = [file("${path.module}/values/loki.yaml")]
+  depends_on = [helm_release.kps]
+}
+
+resource "helm_release" "tempo" {
+  name       = "tempo"
+  namespace  = "monitoring"
+  repository = "https://grafana.github.io/helm-charts"
+  chart      = "tempo"
+  timeout    = 600
+  depends_on = [helm_release.kps]
+}
+
+resource "helm_release" "alloy" {
+  name       = "alloy"
+  namespace  = "monitoring"
+  repository = "https://grafana.github.io/helm-charts"
+  chart      = "alloy"
+  timeout    = 600
+  values     = [file("${path.module}/values/alloy.yaml")]
+  depends_on = [helm_release.loki]
+}
