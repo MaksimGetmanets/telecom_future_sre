@@ -1,0 +1,36 @@
+# Адрес OTLP gRPC (Tempo из namespace monitoring)
+otlpEndpoint: http://tempo.monitoring.svc:4317
+
+gateway:
+  replicas: 2
+  image:
+    repository: gateway
+    tag: dev
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { cpu: "1", memory: 640Mi }
+
+orders:
+  replicas: 2
+  image:
+    repository: orders
+    tag: dev
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { cpu: "1", memory: 640Mi }
+
+postgres:
+  image: postgres:16-alpine
+  database: orders
+  user: orders
+  # Пароль для демо. На VPS переопределяется (--set postgres.password=... / Terraform).
+  password: orders
+  storage: 2Gi
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+serviceMonitor:
+  interval: 15s

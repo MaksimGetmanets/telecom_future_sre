@@ -1,0 +1,104 @@
+{{- range $name := list "orders" "gateway" }}
+{{- $svc := index $.Values $name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "demo.labels" (dict "name" $name "root" $) | nindent 4 }}
+spec:
+  replicas: {{ $svc.replicas }}
+  selector:
+    matchLabels:
+      {{- include "demo.selector" (dict "name" $name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "demo.labels" (dict "name" $name "root" $) | nindent 8 }}
+    spec:
+      {{- if eq $name "orders" }}
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command: ["sh", "-c", "until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done"]
+      {{- end }}
+      containers:
+        - name: {{ $name }}
+          image: "{{ $svc.image.repository }}:{{ $svc.image.tag }}"
+          imagePullPolicy: {{ $svc.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: {{ $name }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ $.Values.otlpEndpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+              value: grpc
+            - name: OTEL_METRICS_EXPORTER
+              value: none
+            - name: OTEL_LOGS_EXPORTER
+              value: none
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: service.namespace={{ $.Release.Namespace }}
+            {{- if eq $name "gateway" }}
+            - name: ORDERS_URL
+              value: http://orders:8080
+            {{- end }}
+            {{- if eq $name "orders" }}
+            - name: DB_URL
+              value: jdbc:postgresql://postgres:5432/{{ $.Values.postgres.database }}
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef: { name: postgres, key: POSTGRES_USER }
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres, key: POSTGRES_PASSWORD }
+            {{- end }}
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml $svc.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "demo.labels" (dict "name" $name "root" $) | nindent 4 }}
+spec:
+  selector:
+    {{- include "demo.selector" (dict "name" $name) | nindent 4 }}
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "demo.labels" (dict "name" $name "root" $) | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "demo.selector" (dict "name" $name) | nindent 6 }}
+  targetLabels:
+    - app.kubernetes.io/name
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: {{ $.Values.serviceMonitor.interval }}
+{{- end }}
