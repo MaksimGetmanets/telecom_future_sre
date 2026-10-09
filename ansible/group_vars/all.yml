@@ -1,0 +1,11 @@
+---
+# Публичные ключи, которым разрешён вход по SSH (обязательно заполнить!)
+common_ssh_user: "{{ ansible_user }}"
+common_ssh_public_keys: []
+#  - "ssh-ed25519 AAAA... user@host"
+
+# Версия k3s: та же, что в Makefile (K3S_IMAGE), чтобы локальный k3d и ВМ совпадали
+k3s_version: "v1.28.15+k3s1"
+
+# Токен кластера. В репозиторий не коммитить открытым текстом: ansible-vault
+# k3s_token: "..."

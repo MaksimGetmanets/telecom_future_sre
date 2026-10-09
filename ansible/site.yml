@@ -1,0 +1,10 @@
+---
+- name: Базовая настройка и безопасность ВМ
+  hosts: all
+  roles:
+    - common
+
+- name: Установка k3s
+  hosts: k3s
+  roles:
+    - k3s

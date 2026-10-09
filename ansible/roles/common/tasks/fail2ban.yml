@@ -1,0 +1,15 @@
+---
+- name: Jail для sshd
+  ansible.builtin.template:
+    src: jail-sshd.local.j2
+    dest: /etc/fail2ban/jail.d/sshd.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart fail2ban
+
+- name: Служба fail2ban включена и запущена
+  ansible.builtin.service:
+    name: fail2ban
+    state: started
+    enabled: true

@@ -1,0 +1,32 @@
+---
+- name: Добавить публичные ключи пользователю
+  ansible.posix.authorized_key:
+    user: "{{ common_ssh_user }}"
+    key: "{{ item }}"
+    state: present
+  loop: "{{ common_ssh_public_keys }}"
+
+- name: Харденинг sshd (только если ключи заданы, иначе можно потерять доступ)
+  when: common_ssh_public_keys | length > 0
+  block:
+    - name: Убедиться, что sshd_config.d подключён
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^Include\s+/etc/ssh/sshd_config\.d/'
+        line: "Include /etc/ssh/sshd_config.d/*.conf"
+        insertbefore: BOF
+        state: present
+      notify: Restart sshd
+
+    - name: Конфиг харденинга sshd
+      ansible.builtin.template:
+        src: 10-hardening.conf.j2
+        dest: /etc/ssh/sshd_config.d/10-hardening.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart sshd
+
+    - name: Проверить конфиг sshd до перезапуска
+      ansible.builtin.command: sshd -t
+      changed_when: false

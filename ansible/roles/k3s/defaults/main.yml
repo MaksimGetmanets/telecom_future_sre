@@ -1,0 +1,27 @@
+---
+# Версия совпадает с K3S_IMAGE в корневом Makefile (rancher/k3s:v1.28.15-k3s1)
+k3s_version: "v1.28.15+k3s1"
+
+# Общий секрет кластера. ОБЯЗАТЕЛЬНО задать через ansible-vault.
+k3s_token: ""
+
+# Адрес API, который увидят агенты и kubectl с рабочей машины
+k3s_api_endpoint: "{{ hostvars[groups['k3s_server'][0]].ansible_host | default(groups['k3s_server'][0]) }}"
+k3s_api_port: 6443
+
+# Доп. SAN в сертификат API (публичный IP / DNS имя)
+k3s_tls_san: []
+
+# Отключить встроенное, если планируем ставить своё через terraform/helm
+# (traefik оставляем: он нужен для ingress; servicelb тоже)
+k3s_disable: []
+
+# Права на kubeconfig на сервере
+k3s_kubeconfig_mode: "0640"
+
+# Куда сохранить kubeconfig на машине, откуда запускается ansible
+k3s_fetch_kubeconfig: true
+k3s_kubeconfig_local_path: "{{ playbook_dir }}/../kubeconfig-sre.yaml"
+k3s_kubeconfig_context: "sre-vm"
+
+k3s_install_url: "https://get.k3s.io"
