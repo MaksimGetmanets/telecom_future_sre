@@ -10,11 +10,20 @@ grafana:
       uid: loki
       access: proxy
       url: http://loki.monitoring.svc:3100
+      jsonData:
+        derivedFields:
+          # в JSON-логе есть "trace_id":"..." -> ссылка в Tempo
+          # $$ нужен: Grafana иначе считает ${...} переменной окружения
+          - name: trace_id
+            matcherRegex: '"trace_id":"(\w+)"'
+            url: '$${__value.raw}'
+            datasourceUid: tempo
+            urlDisplayLabel: Открыть трейс
     - name: Tempo
       type: tempo
       uid: tempo
       access: proxy
-      url: http://tempo.monitoring.svc:3100
+      url: http://tempo.monitoring.svc:3200
       jsonData:
         tracesToLogsV2:
           datasourceUid: loki
