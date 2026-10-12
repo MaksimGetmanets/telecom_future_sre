@@ -1,0 +1,148 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: remediator
+  namespace: {{ .Release.Namespace }}
+---
+# Права только в namespace с приложениями и только на deployments/scale: ни секретов, ни других ресурсов
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: remediator
+  namespace: {{ .Values.targetNamespace }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: remediator
+  namespace: {{ .Values.targetNamespace }}
+subjects:
+  - kind: ServiceAccount
+    name: remediator
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: remediator
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: remediator-policies
+  namespace: {{ .Release.Namespace }}
+data:
+  policies.yaml: |-
+{{ required "policiesYaml не задан (Terraform берёт remediator/policies.yaml)" .Values.policiesYaml | indent 4 }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: remediator
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+stringData:
+  webhook-token: {{ .Values.webhookToken | quote }}
+  telegram-token: {{ .Values.telegram.token | quote }}
+  telegram-chat-id: {{ .Values.telegram.chatId | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: remediator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: remediator
+    app.kubernetes.io/part-of: sre-observability
+spec:
+  # одна реплика: счётчики cooldown и лимита хранятся в памяти процесса
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: remediator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: remediator
+      annotations:
+        # правка политик перезапускает под
+        checksum/policies: {{ .Values.policiesYaml | sha256sum }}
+    spec:
+      serviceAccountName: remediator
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: remediator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: DRY_RUN
+              value: {{ .Values.dryRun | quote }}
+            - name: POLICY_FILE
+              value: /etc/remediator/policies.yaml
+            - name: WEBHOOK_TOKEN
+              valueFrom: { secretKeyRef: { name: remediator, key: webhook-token } }
+            - name: TELEGRAM_TOKEN
+              valueFrom: { secretKeyRef: { name: remediator, key: telegram-token } }
+            - name: TELEGRAM_CHAT_ID
+              valueFrom: { secretKeyRef: { name: remediator, key: telegram-chat-id } }
+          volumeMounts:
+            - name: policies
+              mountPath: /etc/remediator
+              readOnly: true
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+      volumes:
+        - name: policies
+          configMap:
+            name: remediator-policies
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: remediator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: remediator
+spec:
+  selector:
+    app.kubernetes.io/name: remediator
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: remediator
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: remediator
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}

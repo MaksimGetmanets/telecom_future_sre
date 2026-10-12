@@ -36,7 +36,7 @@ resource "helm_release" "kps" {
   repository       = "https://prometheus-community.github.io/helm-charts"
   chart            = "kube-prometheus-stack"
   timeout          = 900
-  values           = [file("${path.module}/values/kps.yaml")]
+  values 	   = [file("${path.module}/values/kps.yaml"), file("${path.module}/values/alertmanager.yaml")]
 
   set_sensitive {
     name  = "grafana.adminPassword"
