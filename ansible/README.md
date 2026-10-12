@@ -1,6 +1,6 @@
 # ansible
 
-Роли: `common` (ssh-ключи, ufw, fail2ban) и `k3s` (server/agent). `rsyslog` и `auditd` пока пустые.
+Роли: `common` (ssh-ключи, ufw, fail2ban), `k3s` (server/agent) и `deploy_tools` (terraform, make, git на ВМ). `rsyslog` и `auditd` пока пустые.
 
 ## Запуск
 
@@ -26,3 +26,16 @@ ansible-playbook site.yml -e @group_vars/vault.yml --ask-vault-pass --ask-become
 - ufw сначала разрешает SSH и только потом включается.
 - Версия k3s (`v1.28.15+k3s1`) совпадает с `K3S_IMAGE` в Makefile.
 - Terraform (`terraform/`) дальше применяется к ВМ-кластеру: `kube_config_path=../kubeconfig-sre.yaml`, `kube_context=sre-vm`.
+
+## Деплой стека на ВМ одной командой
+
+Запускается на самой ВМ, из корня репозитория (нужен `terraform`, его ставит роль `deploy_tools`):
+
+```bash
+make vm-setup      # ansible: common + k3s + terraform (спросит пароли vault и sudo)
+make deploy        # terraform: kube-prometheus-stack, Loki, Tempo, Alloy, дашборды
+make deploy-status # что запущено в кластере
+```
+
+`make deploy` по умолчанию не ставит demo-shop: образам `gateway:dev` и `orders:dev` на ВМ взяться неоткуда,
+пока они не публикуются в ghcr. Когда образы появятся: `make deploy DEPLOY_APPS=yes`.

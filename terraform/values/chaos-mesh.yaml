@@ -1,0 +1,15 @@
+# Chaos Mesh для k3s/k3d: у них встроенный containerd со своим сокетом (по умолчанию чарт ждёт docker)
+chaosDaemon:
+  runtime: containerd
+  socketPath: /run/k3s/containerd/containerd.sock
+
+controllerManager:
+  # 3 реплики по умолчанию это HA, для одной ВМ лишнее
+  replicaCount: 1
+  # Эксперименты разрешены только в namespace с аннотацией chaos-mesh.org/inject=enabled
+  # (ставится командой make chaos-enable). Защита от случайного удара по monitoring и kube-system.
+  enableFilterNamespace: true
+
+dashboard:
+  # Сценарии запускаем манифестами (kubectl apply -f chaos/...), UI не нужен, экономим память
+  create: false
