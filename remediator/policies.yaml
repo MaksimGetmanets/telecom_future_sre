@@ -1,0 +1,19 @@
+# Таблица политик remediator: алерт -> действие.
+# match: лейбл -> регулярное выражение (полное совпадение). Первая подошедшая политика выигрывает.
+# Цель действия берётся из лейблов алерта: namespace и deployment.
+defaults:
+  cooldown_seconds: 180        # пауза между одинаковыми действиями над одним deployment
+  max_actions_per_hour: 6      # потолок действий в час на один deployment
+  allowed_namespaces: [demo]   # в остальных namespace remediator ничего не трогает
+
+policies:
+  # Рост ошибок / утечка памяти -> перезапуск (лечит /fault и /leak, состояние живёт в памяти пода)
+  - name: restart-on-errors
+    match: { alertname: "(DemoHighErrorRate|DemoMemoryHigh|.*ErrorBudgetBurn.*|.*Availability.*)" }
+    action: restart
+
+  # Рост задержки -> добавить реплику (до max)
+  - name: scale-on-latency
+    match: { alertname: "(DemoHighLatency|.*Latency.*)" }
+    action: scale
+    params: { step: 1, max: 4 }

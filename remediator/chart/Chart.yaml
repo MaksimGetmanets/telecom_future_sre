@@ -1,0 +1,6 @@
+apiVersion: v2
+name: remediator
+description: Автоматическое реагирование на алерты (restart, scale) для SRE-платформы
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
