@@ -1,0 +1,15 @@
+# Правила, сгенерированные Sloth (observability/alerts/generated/*.yaml), как PrometheusRule.
+# Файлы читаются через .Files.Get и не проходят через шаблонизатор: в аннотациях Sloth есть двойные фигурные скобки.
+{{- range $path, $_ := .Files.Glob "generated/*.yaml" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ base $path | trimSuffix ".yaml" }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: sre-alerts
+    app.kubernetes.io/part-of: sre-observability
+spec:
+{{ $.Files.Get $path | indent 2 }}
+{{- end }}

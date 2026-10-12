@@ -9,3 +9,4 @@ chaos/            # манифесты Chaos Mesh
 load/             # k6-скрипты
 docs/             # runbooks/, results/, architecture
 Makefile
+попажопа
