@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  author: telecom_future_sre
+  description: Установка k3s server/agent на ВМ
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions: [jammy, noble]
+dependencies: []

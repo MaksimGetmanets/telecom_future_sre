@@ -2,3 +2,7 @@
 *.tfstate
 *.tfstate.*
 *.tfvars
+ansible/inventory/hosts.ini
+ansible/group_vars/vault.yml
+kubeconfig-*.yaml
+*.retry

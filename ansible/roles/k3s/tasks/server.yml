@@ -1,0 +1,74 @@
+---
+- name: Каталог конфигурации k3s
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Конфиг k3s server
+  ansible.builtin.template:
+    src: config-server.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart k3s
+
+- name: Скачать установщик k3s
+  ansible.builtin.get_url:
+    url: "{{ k3s_install_url }}"
+    dest: /usr/local/bin/k3s-install.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Установить k3s server (идемпотентно, версия зафиксирована)
+  ansible.builtin.command: /usr/local/bin/k3s-install.sh
+  args:
+    creates: /usr/local/bin/k3s
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_EXEC: server
+  notify: Restart k3s
+
+- name: Применить handlers до проверки ноды
+  ansible.builtin.meta: flush_handlers
+
+- name: Служба k3s server запущена
+  ansible.builtin.service:
+    name: k3s
+    state: started
+    enabled: true
+
+- name: Ждать, пока нода станет Ready
+  ansible.builtin.command: k3s kubectl get nodes --no-headers
+  register: k3s_nodes
+  until: k3s_nodes.rc == 0 and ' Ready' in k3s_nodes.stdout
+  retries: 30
+  delay: 10
+  changed_when: false
+
+- name: Забрать kubeconfig на локальную машину
+  when: k3s_fetch_kubeconfig | bool
+  block:
+    - name: Прочитать kubeconfig с сервера
+      ansible.builtin.slurp:
+        src: /etc/rancher/k3s/k3s.yaml
+      register: k3s_kubeconfig_raw
+      no_log: true
+
+    - name: Сохранить kubeconfig локально с внешним адресом API
+      ansible.builtin.copy:
+        content: >-
+          {{ k3s_kubeconfig_raw.content | b64decode
+             | regex_replace('https://127\.0\.0\.1:6443', 'https://' ~ k3s_api_endpoint ~ ':' ~ k3s_api_port)
+             | regex_replace('(?m)^(\s*(?:name|cluster|user|current-context): )default$', '\1' ~ k3s_kubeconfig_context)
+             | regex_replace('(?m)^- name: default$', '- name: ' ~ k3s_kubeconfig_context)
+             | regex_replace('(?m)^  name: default$', '  name: ' ~ k3s_kubeconfig_context) }}
+        dest: "{{ k3s_kubeconfig_local_path }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      no_log: true
