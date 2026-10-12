@@ -76,7 +76,7 @@ def test_dry_run_changes_nothing(policies):
 
 def test_scale_up_by_step_and_cap(policies):
     engine, kube = make(policies, replicas=3, clock=Clock())
-    [r] = engine.handle(payload(alert("DemoHighLatency", dep="gateway")))
+    [r] = engine.handle(payload(alert("DemoHighLatency", dep="orders")))
     assert r["status"] == "executed" and (r["replicas_from"], r["replicas_to"]) == (3, 4)
     clock = Clock()
     engine2, kube2 = make(policies, replicas=4, clock=clock)
@@ -147,7 +147,7 @@ def test_kube_error_is_reported_not_raised(policies):
 
 def test_batch_of_alerts(policies):
     engine, kube = make(policies)
-    results = engine.handle(payload(alert(dep="orders"), alert("DemoHighLatency", dep="gateway")))
+    results = engine.handle(payload(alert(dep="orders"), alert("DemoHighLatency", dep="orders")))
     assert [r["status"] for r in results] == ["executed", "executed"]
 
 
@@ -185,3 +185,20 @@ def test_http_token(policies):
     c = client(policies, token="s3cret")
     assert c.post("/alert", json=payload(alert())).status_code == 401
     assert c.post("/alert", json=payload(alert()), headers={"Authorization": "Bearer s3cret"}).status_code == 200
+
+
+def test_sloth_alert_names_map_to_actions(policies):
+    # имена алертов из observability/slo (Sloth) должны попадать в политики
+    engine, kube = make(policies)
+    results = engine.handle(payload(
+        alert("OrdersAvailabilityBurn", dep="orders"),
+        alert("OrdersLatencyBurn", dep="orders"),
+        alert("GatewayLatencyBurn", dep="gateway"),
+        alert("GatewayAvailabilityBurn", dep="gateway"),
+    ))
+    assert [(r["action"], r["status"]) for r in results] == [
+        ("restart", "executed"),
+        ("scale", "executed"),
+        (None, "skipped_no_policy"),
+        ("restart", "executed"),
+    ]
