@@ -12,3 +12,4 @@ down:
 > k3d cluster delete $(CLUSTER)
 include apps/apps.mk
 include remediator/remediator.mk
+include load/load.mk
