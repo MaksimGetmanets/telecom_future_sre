@@ -1,6 +1,8 @@
 # Demo-магазин (gateway, orders, postgres) из локального Helm-чарта apps/chart.
 # Образы gateway:dev и orders:dev должны быть уже в кластере (см. apps/apps.mk: make apps-images).
-# ServiceMonitor-ресурсам нужны CRD из kube-prometheus-stack, поэтому depends_on.
+# ServiceMonitor-ресурсам нужны CRD из kube-prometheus-stack, поэтому depends_on kps.
+# Tempo должен быть готов раньше приложений: иначе OTel-агент при старте пишет в лог стектрейсы
+# "Failed to export spans ... Connection refused" (helm_release ждёт готовности, wait=true по умолчанию).
 
 variable "postgres_password" {
   type      = string
@@ -20,5 +22,5 @@ resource "helm_release" "demo_shop" {
     value = var.postgres_password
   }
 
-  depends_on = [helm_release.kps]
+  depends_on = [helm_release.kps, helm_release.tempo]
 }
