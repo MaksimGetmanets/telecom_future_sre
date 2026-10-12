@@ -12,8 +12,9 @@ policies:
     match: { alertname: "(DemoHighErrorRate|DemoMemoryHigh|.*ErrorBudgetBurn.*|.*Availability.*)" }
     action: restart
 
-  # Рост задержки -> добавить реплику (до max)
+  # Рост задержки -> добавить реплику (до max). Только для orders: задержка gateway обычно приходит от orders,
+  # а лишние реплики gateway её не лечат (такой алерт остаётся без действия: skipped_no_policy, только Telegram).
   - name: scale-on-latency
-    match: { alertname: "(DemoHighLatency|.*Latency.*)" }
+    match: { alertname: "(DemoHighLatency|.*Latency.*)", deployment: "orders" }
     action: scale
     params: { step: 1, max: 4 }

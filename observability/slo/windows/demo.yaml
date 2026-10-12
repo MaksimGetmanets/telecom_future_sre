@@ -1,0 +1,24 @@
+# Короткие окна burn-rate алертов для демо: сбой замечается за ~1 минуту вместо ~1 часа.
+# Для боевого профиля удалите --slo-period-windows-path из `make slo-gen`: Sloth возьмёт стандартные окна Google SRE.
+apiVersion: sloth.slok.dev/v1
+kind: AlertWindows
+spec:
+  sloPeriod: 30d
+  page:
+    quick:
+      errorBudgetPercent: 0.2
+      shortWindow: 1m
+      longWindow: 5m
+    slow:
+      errorBudgetPercent: 0.5
+      shortWindow: 5m
+      longWindow: 30m
+  ticket:
+    quick:
+      errorBudgetPercent: 2
+      shortWindow: 30m
+      longWindow: 2h
+    slow:
+      errorBudgetPercent: 5
+      shortWindow: 2h
+      longWindow: 6h
