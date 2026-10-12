@@ -1,7 +1,0 @@
-**/target
-**/.idea
-**/*.iml
-chart
-Dockerfile
-README.md
-apps.mk
