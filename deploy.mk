@@ -4,6 +4,7 @@
 #   make vm-setup               ansible: common + k3s + terraform на ВМ (спросит пароли vault и sudo)
 #   make deploy                 terraform: стек наблюдаемости на ВМ-кластер (без demo-shop, пока нет образов в ghcr)
 #   make deploy DEPLOY_APPS=yes то же + demo-shop (gateway, orders, postgres)
+#   make deploy DEPLOY_EXTRA="-replace=helm_release.alloy"  пересоздать релиз (нужно один раз после добавления syslog в Alloy)
 #   make deploy-status          что запущено в кластере
 #   make chaos-enable           разрешить Chaos Mesh эксперименты в namespace demo
 #   make chaos-status           поды и CRD Chaos Mesh
@@ -11,6 +12,8 @@
 VM_KUBECONFIG ?= $(abspath kubeconfig-sre.yaml)
 VM_CONTEXT    ?= sre-vm
 DEPLOY_APPS   ?= no
+# Доп. аргументы terraform apply, например DEPLOY_EXTRA="-replace=helm_release.alloy"
+DEPLOY_EXTRA  ?=
 VAULT_ARGS    ?= -e @group_vars/vault.yml --ask-vault-pass --ask-become-pass
 
 # demo-shop нужны образы gateway/orders. На ВМ их нет, пока не настроена публикация в ghcr,
@@ -30,7 +33,7 @@ vm-setup:
 deploy:
 > @test -f "$(VM_KUBECONFIG)" || { echo "Нет $(VM_KUBECONFIG). Сначала: make vm-setup"; exit 1; }
 > cd terraform && terraform init -input=false && terraform apply -auto-approve -input=false \
->   -var kube_config_path=$(VM_KUBECONFIG) -var kube_context=$(VM_CONTEXT) $(DEPLOY_TARGETS)
+>   -var kube_config_path=$(VM_KUBECONFIG) -var kube_context=$(VM_CONTEXT) $(DEPLOY_TARGETS) $(DEPLOY_EXTRA)
 
 # Разрешить Chaos Mesh бить по namespace demo (без аннотации эксперименты туда не пройдут)
 chaos-enable:

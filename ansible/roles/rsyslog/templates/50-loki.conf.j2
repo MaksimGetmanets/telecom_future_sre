@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+# Пересылка логов хоста по syslog (RFC5424, TCP, octet-counting) в Alloy, дальше в Loki.
+{{ rsyslog_forward_selector }} action(
+    type="omfwd"
+    target="{{ rsyslog_loki_target }}"
+    port="{{ rsyslog_loki_port }}"
+    protocol="tcp"
+    template="RSYSLOG_SyslogProtocol23Format"
+    TCP_Framing="octet-counted"
+    action.resumeRetryCount="-1"
+    queue.type="LinkedList"
+    queue.filename="fwd_loki"
+    queue.maxDiskSpace="{{ rsyslog_queue_max_disk }}"
+    queue.saveOnShutdown="on"
+)

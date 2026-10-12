@@ -14,3 +14,10 @@
   roles:
     - deploy_tools
   tags: [deploy_tools]
+
+- name: Логи и аудит хоста (rsyslog, auditd) в Loki
+  hosts: k3s
+  roles:
+    - rsyslog
+    - auditd
+  tags: [host_logs]
