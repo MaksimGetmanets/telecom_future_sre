@@ -12,7 +12,7 @@ cp inventory/hosts.ini.example inventory/hosts.ini     # вписать свои
 ansible-vault create group_vars/vault.yml
 #   common_ssh_public_keys: ["ssh-ed25519 AAAA..."]
 #   k3s_token: "<случайная строка >=16 символов>"
-ansible-playbook site.yml --ask-vault-pass
+ansible-playbook site.yml -e @group_vars/vault.yml --ask-vault-pass --ask-become-pass
 ```
 
 Только common: `--tags common`. Только k3s: `--tags k3s`.
