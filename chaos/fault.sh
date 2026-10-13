@@ -11,9 +11,9 @@ for pod in $(kubectl -n demo get pods -l "app.kubernetes.io/name=$svc" -o jsonpa
   pf=$!
   sleep 1.5
   if [ "$arg" = clear ]; then
-    curl -s -X DELETE localhost:18080/fault
+    curl -s -m 5 -X DELETE localhost:18080/fault
   else
-    curl -s -X POST "localhost:18080/fault?$arg"
+    curl -s -m 5 -X POST "localhost:18080/fault?$arg"
   fi
   echo "  <- $pod"
   kill "$pf" 2>/dev/null || true
