@@ -1,0 +1,9 @@
+---
+# Terraform из apt-репозитория HashiCorp. Пусто = последняя версия (в terraform/main.tf стоит ~> 1.5)
+deploy_tools_terraform_version: ""
+deploy_tools_packages:
+  - make
+  - git
+  - unzip
+  - gnupg
+  - ca-certificates
