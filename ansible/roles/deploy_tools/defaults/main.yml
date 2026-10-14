@@ -7,3 +7,6 @@ deploy_tools_packages:
   - unzip
   - gnupg
   - ca-certificates
+
+# Версия kubectl = версия Kubernetes в k3s (v1.28.15+k3s1 -> v1.28.15)
+deploy_tools_kubectl_version: "{{ (k3s_version | default('v1.28.15+k3s1')).split('+')[0] }}"

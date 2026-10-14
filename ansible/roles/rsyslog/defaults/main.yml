@@ -1,0 +1,12 @@
+---
+# Куда rsyslog пересылает логи хоста: syslog-приёмник Alloy в кластере (terraform/values/alloy.yaml).
+# Адрес фиксированный ClusterIP сервиса Alloy (service.clusterIP), он достижим только с самой ноды k3s,
+# наружу порт не торчит. Если меняете здесь, меняйте и в alloy.yaml.
+rsyslog_loki_target: "10.43.100.100"
+rsyslog_loki_port: 1514
+
+# Что пересылать. По умолчанию всё; можно сузить, например "authpriv.*;auth.*;kern.warning;local6.*"
+rsyslog_forward_selector: "*.*"
+
+# Дисковая очередь: пока Alloy недоступен (до make deploy или при рестарте), логи копятся тут
+rsyslog_queue_max_disk: "100m"

@@ -41,3 +41,25 @@
     name: "terraform{{ '=' ~ deploy_tools_terraform_version if deploy_tools_terraform_version else '' }}"
     state: present
     update_cache: true
+
+# k3s кладёт /usr/local/bin/kubectl как ссылку на бинарник k3s: он читает /etc/rancher/k3s/config.yaml
+# (доступен только root), поэтому обычному пользователю "permission denied". Ставим настоящий kubectl.
+- name: Проверить, чем сейчас является /usr/local/bin/kubectl
+  ansible.builtin.stat:
+    path: /usr/local/bin/kubectl
+  register: deploy_tools_kubectl_stat
+
+- name: Убрать ссылку kubectl на k3s (get_url иначе записал бы поверх бинарника k3s)
+  ansible.builtin.file:
+    path: /usr/local/bin/kubectl
+    state: absent
+  when: deploy_tools_kubectl_stat.stat.islnk | default(false)
+
+- name: Установить настоящий kubectl той же версии, что и k3s
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/{{ deploy_tools_kubectl_version }}/bin/linux/amd64/kubectl"
+    checksum: "sha256:https://dl.k8s.io/release/{{ deploy_tools_kubectl_version }}/bin/linux/amd64/kubectl.sha256"
+    dest: /usr/local/bin/kubectl
+    owner: root
+    group: root
+    mode: "0755"
