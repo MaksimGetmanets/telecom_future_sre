@@ -24,7 +24,7 @@ VAULT_ARGS    ?= -e @group_vars/vault.yml --ask-vault-pass --ask-become-pass
 # поэтому по умолчанию применяем всё, кроме helm_release.demo_shop (и лишнего podinfo).
 STACK_TARGETS = -target=helm_release.kps -target=helm_release.loki -target=helm_release.tempo \
                 -target=helm_release.alloy -target=helm_release.dashboards \
-                -target=helm_release.chaos_mesh -target=helm_release.alerts
+                -target=helm_release.chaos_mesh -target=helm_release.alerts -target=helm_release.blackbox_exporter
 ifeq ($(DEPLOY_APPS),yes)
 DEPLOY_TARGETS =
 else
