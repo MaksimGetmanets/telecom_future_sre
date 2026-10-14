@@ -1,0 +1,8 @@
+title = "sre-platform gitleaks"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Фиктивные ключи в тестах"
+paths = ['''llm/tests/.*''', '''remediator/tests/.*''']

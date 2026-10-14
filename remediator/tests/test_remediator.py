@@ -76,11 +76,11 @@ def test_dry_run_changes_nothing(policies):
 
 def test_scale_up_by_step_and_cap(policies):
     engine, kube = make(policies, replicas=3, clock=Clock())
-    [r] = engine.handle(payload(alert("DemoHighLatency", dep="orders")))
+    [r] = engine.handle(payload(alert("OrdersLatencyBurn", dep="orders")))
     assert r["status"] == "executed" and (r["replicas_from"], r["replicas_to"]) == (3, 4)
     clock = Clock()
     engine2, kube2 = make(policies, replicas=4, clock=clock)
-    [r2] = engine2.handle(payload(alert("DemoHighLatency")))
+    [r2] = engine2.handle(payload(alert("OrdersLatencyBurn")))
     assert r2["status"] == "skipped_at_max" and kube2.calls == []
 
 
@@ -147,7 +147,7 @@ def test_kube_error_is_reported_not_raised(policies):
 
 def test_batch_of_alerts(policies):
     engine, kube = make(policies)
-    results = engine.handle(payload(alert(dep="orders"), alert("DemoHighLatency", dep="orders")))
+    results = engine.handle(payload(alert(dep="orders"), alert("OrdersLatencyBurn", dep="orders")))
     assert [r["status"] for r in results] == ["executed", "executed"]
 
 
@@ -202,3 +202,10 @@ def test_sloth_alert_names_map_to_actions(policies):
         (None, "skipped_no_policy"),
         ("restart", "executed"),
     ]
+
+
+def test_demo_high_latency_restarts_instead_of_scaling(policies):
+    """Сбой задержки из chaos/fault.sh живёт в поде: scale его не лечит, поэтому DemoHighLatency идёт в restart."""
+    engine, kube = make(policies)
+    [r] = engine.handle(payload(alert("DemoHighLatency", dep="orders")))
+    assert r["status"] == "executed" and kube.calls[0][0] == "restart"

@@ -1,0 +1,6 @@
+apiVersion: v2
+name: llm-assistant
+description: "LLM-ассистент SRE-платформы: гипотеза причины и предложение действия по алерту"
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

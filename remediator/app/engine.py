@@ -11,12 +11,13 @@ NOTIFY_STATUSES = {"executed", "dry_run", "error"}
 
 class Engine:
     def __init__(self, policies: PolicySet, kube: Kube, dry_run: bool, guard: Guard | None = None,
-                 notify: Callable[[dict], None] | None = None):
+                 notify: Callable[[dict], None] | None = None, assistant=None):
         self.policies = policies
         self.kube = kube
         self.dry_run = dry_run
         self.guard = guard or Guard(policies.defaults.cooldown_seconds, policies.defaults.max_actions_per_hour)
         self.notify = notify
+        self.assistant = assistant
 
     def handle(self, payload: dict) -> list[dict]:
         results = []
@@ -26,6 +27,8 @@ class Engine:
             audit.record(**result)
             if self.notify and result["status"] in NOTIFY_STATUSES:
                 self.notify(result)
+            if self.assistant and result["status"] in NOTIFY_STATUSES:
+                self.assistant.advise(alert, result)
         return results
 
     def _handle_alert(self, alert: dict) -> dict:
