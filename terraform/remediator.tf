@@ -27,6 +27,8 @@ resource "helm_release" "remediator" {
     dryRun       = var.remediator_dry_run
     policiesYaml = file("${path.module}/../remediator/policies.yaml")
     telegram     = { chatId = var.telegram_chat_id }
+    # советник включается, только когда задан ключ OpenAI (см. llm.tf)
+    llmAssistantUrl = local.llm_enabled ? "http://llm-assistant.monitoring.svc:8080/diagnose" : ""
   })]
 
   set_sensitive {

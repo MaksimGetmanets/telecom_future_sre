@@ -18,6 +18,9 @@ class Settings:
     webhook_token: str = ""
     telegram_token: str = ""
     telegram_chat_id: str = ""
+    # Если задан, после каждого решения в фоне запрашивается диагноз LLM-ассистента (только в аудит)
+    llm_assistant_url: str = ""
+    llm_assistant_token: str = ""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -28,4 +31,6 @@ class Settings:
             webhook_token=env.get("WEBHOOK_TOKEN", ""),
             telegram_token=env.get("TELEGRAM_TOKEN", ""),
             telegram_chat_id=env.get("TELEGRAM_CHAT_ID", ""),
+            llm_assistant_url=env.get("LLM_ASSISTANT_URL", ""),
+            llm_assistant_token=env.get("LLM_ASSISTANT_TOKEN", ""),
         )

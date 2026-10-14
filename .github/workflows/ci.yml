@@ -39,6 +39,19 @@ jobs:
       - run: pip install -r remediator/requirements.txt -r remediator/requirements-dev.txt
       - run: python -m pytest -q remediator/tests chaos/test_mttr.py
 
+  llm-test:
+    name: Тесты LLM-ассистента
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: llm/requirements*.txt
+      - run: pip install -r llm/requirements-dev.txt
+      - run: python -m pytest -q llm/tests
+
   helm-lint:
     name: Helm lint
     runs-on: ubuntu-latest
@@ -47,7 +60,7 @@ jobs:
       - uses: azure/setup-helm@v4
       - name: Линт локальных чартов
         run: |
-          for chart in apps/chart remediator/chart observability/alerts observability/dashboards; do
+          for chart in apps/chart remediator/chart llm/chart observability/alerts observability/dashboards; do
             echo "== $chart"
             helm lint "$chart"
           done
@@ -69,7 +82,7 @@ jobs:
   images:
     name: Сборка и публикация образов (ghcr.io)
     # Образы собираются на каждом PR (проверка Dockerfile), публикуются только при пуше в develop/main
-    needs: [apps-test, remediator-test]
+    needs: [apps-test, remediator-test, llm-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -89,6 +102,10 @@ jobs:
           - name: remediator
             context: remediator
             file: remediator/Dockerfile
+            args: ""
+          - name: llm-assistant
+            context: llm
+            file: llm/Dockerfile
             args: ""
     steps:
       - uses: actions/checkout@v4

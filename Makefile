@@ -13,3 +13,4 @@ down:
 include apps/apps.mk
 include remediator/remediator.mk
 include load/load.mk
+include llm/llm.mk

@@ -6,6 +6,7 @@ from fastapi import Body, Depends, FastAPI, Header, HTTPException, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, generate_latest
 
 from . import audit, notify
+from .assistant import Assistant
 from .config import Settings
 from .engine import Engine
 from .kube import Kube, RealKube
@@ -16,12 +17,14 @@ ACTIONS = Counter("remediator_actions_total", "Решения remediator", ["act
 
 
 def create_app(settings: Settings | None = None, kube: Kube | None = None, policies: PolicySet | None = None,
-               notifier: Callable[[dict], None] | None = None) -> FastAPI:
+               notifier: Callable[[dict], None] | None = None, assistant: Assistant | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     policies = policies or load(settings.policy_file)
     if notifier is None and settings.telegram_token:
         notifier = lambda result: notify.send(settings.telegram_token, settings.telegram_chat_id, result)  # noqa: E731
-    engine = Engine(policies, kube or RealKube(), settings.dry_run, notify=notifier)
+    if assistant is None and settings.llm_assistant_url:
+        assistant = Assistant(settings.llm_assistant_url, settings.llm_assistant_token)
+    engine = Engine(policies, kube or RealKube(), settings.dry_run, notify=notifier, assistant=assistant)
     app = FastAPI(title="remediator")
 
     def check_token(authorization: str = Header(default="")):
@@ -30,7 +33,7 @@ def create_app(settings: Settings | None = None, kube: Kube | None = None, polic
 
     @app.get("/healthz")
     def healthz():
-        return {"status": "ok", "dry_run": settings.dry_run, "policies": len(policies.policies)}
+        return {"status": "ok", "dry_run": settings.dry_run, "policies": len(policies.policies), "llm_assistant": bool(assistant)}
 
     @app.post("/alert", dependencies=[Depends(check_token)])
     def alert(payload: dict = Body(...)):

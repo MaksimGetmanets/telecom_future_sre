@@ -96,6 +96,9 @@ spec:
               valueFrom: { secretKeyRef: { name: remediator, key: telegram-token } }
             - name: TELEGRAM_CHAT_ID
               valueFrom: { secretKeyRef: { name: remediator, key: telegram-chat-id } }
+            # пусто = LLM-советник выключен
+            - name: LLM_ASSISTANT_URL
+              value: {{ .Values.llmAssistantUrl | quote }}
           volumeMounts:
             - name: policies
               mountPath: /etc/remediator
