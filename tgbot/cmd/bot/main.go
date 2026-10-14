@@ -32,8 +32,8 @@ func main() {
 	alertHandler := alert.NewHandler(bot, chatId)
 	alertHandler.RegisterRoutes(mux)
 
-	log.Println("Бот готов к работе. Ожидание вебхуков от Alertmanager на порту :8080...")
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	log.Println("Бот готов к работе. Ожидание вебхуков от Alertmanager на порту :9093...")
+	if err := http.ListenAndServe(":9093", mux); err != nil {
 		log.Fatalf("Не удалось запустить HTTP сервер: %v", err)
 	}
 }
