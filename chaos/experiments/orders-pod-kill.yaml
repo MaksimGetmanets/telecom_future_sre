@@ -1,0 +1,15 @@
+# Сценарий 1: падение сервиса. Разом убиваем все поды orders (две реплики).
+# Ожидаем: проба synthetic-orders падает, алерт SyntheticProbeFailed, Kubernetes сам пересоздаёт поды.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: PodChaos
+metadata:
+  name: orders-pod-kill
+  namespace: demo
+spec:
+  action: pod-kill
+  mode: all
+  gracePeriod: 0
+  selector:
+    namespaces: [demo]
+    labelSelectors:
+      app.kubernetes.io/name: orders

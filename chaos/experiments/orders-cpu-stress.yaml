@@ -1,0 +1,18 @@
+# Сценарий 3: нехватка CPU. Два воркера нагружают процессор в контейнерах orders на 100%.
+# Ожидаем: рост латентности, алерт, remediator масштабирует orders.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: StressChaos
+metadata:
+  name: orders-cpu-stress
+  namespace: demo
+spec:
+  mode: all
+  selector:
+    namespaces: [demo]
+    labelSelectors:
+      app.kubernetes.io/name: orders
+  stressors:
+    cpu:
+      workers: 2
+      load: 100
+  duration: "3m"
