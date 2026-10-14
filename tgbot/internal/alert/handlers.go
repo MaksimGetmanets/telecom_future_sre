@@ -24,7 +24,7 @@ func NewHandler(bot *tgbotapi.BotAPI, chatId int64) *Handler {
 
 // RegisterRoutes регистрирует эндпоинты в http.ServeMux
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/webhook", h.HandleWebhook)
+	mux.HandleFunc("/alert", h.HandleWebhook)
 }
 
 // HandleWebhook обрабатывает входящие запросы от Alertmanager

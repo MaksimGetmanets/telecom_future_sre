@@ -1,5 +1,3 @@
-# Маршрутизация Alertmanager (второй values-файл для kube-prometheus-stack, объединяется с kps.yaml).
-# Алерты namespace=demo уходят в remediator. Telegram добавится вторым receiver'ом с continue: true.
 alertmanager:
   config:
     route:
@@ -8,15 +6,18 @@ alertmanager:
       routes:
         - receiver: "null"
           matchers: ['alertname="Watchdog"']
+        
+        # 1. Сначала отправляем алерт в remediator для авто-исправления
         - receiver: remediator
           matchers: ['namespace="demo"']
           group_wait: 5s
           group_interval: 1m
           repeat_interval: 5m
-          continue: true
-    receivers:
-      - name: "null"
-      - name: remediator
-        webhook_configs:
-          - url: http://remediator.monitoring.svc:8080/alert
-            send_resolved: false
+          continue: true # КРИТИЧНО: позволяет алерту пойти дальше по списку в tgbot
+
+        # 2. Затем этот же алерт падает в tgbot, чтобы вы получили уведомление
+        - receiver: tgbot
+          matchers: ['namespace="demo"']
+          group_wait: 5s
+          group_interval: 1m
+          repeat_interval: 5m
