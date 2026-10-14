@@ -1,0 +1,7 @@
+scenario,run,started,detect_s,action_s,mttr_s,alert,action_status,recovered,notes
+errors,1,2026-10-14T18:36:43+00:00,63.3,66.4,115.2,DemoHighErrorRate,executed,True,
+errors,2,2026-10-14T18:40:07+00:00,68.7,72.4,125.3,DemoHighErrorRate,executed,True,skipped_guard: cooldown: прошло 149 с из 180
+errors,3,2026-10-14T18:43:16+00:00,63.2,,120.5,DemoHighErrorRate,,True,skipped_guard: cooldown: прошло 179 с из 180
+errors,1,2026-10-14T18:49:41+00:00,68.4,68.7,114.8,DemoHighErrorRate,executed,True,skipped_guard: cooldown: прошло 0 с из 180
+errors,2,2026-10-14T18:55:32+00:00,77.9,77.9,120.6,DemoHighErrorRate,executed,True,skipped_guard: cooldown: прошло 0 с из 180
+errors,3,2026-10-14T19:01:13+00:00,63.3,170.9,413.1,DemoHighErrorRate,executed,True,skipped_guard: rate_limit: 6 действий в час на demo/orders
