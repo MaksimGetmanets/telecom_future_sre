@@ -17,6 +17,9 @@ resource "helm_release" "demo_shop" {
   chart            = "${path.module}/../apps/chart"
   timeout          = 600
 
+  # map с for-фильтром, а не условие `? {...} : {}`: у условия ветки разных типов, Terraform такое не принимает
+  values = [yamlencode({ for k in ["gateway", "orders"] : k => { image = local.images[k] } if local.use_registry })]
+
   set_sensitive {
     name  = "postgres.password"
     value = var.postgres_password

@@ -12,6 +12,10 @@
 VM_KUBECONFIG ?= $(abspath kubeconfig-sre.yaml)
 VM_CONTEXT    ?= sre-vm
 DEPLOY_APPS   ?= no
+# Образы из ghcr (публикует CI). Пустой IMAGE_REGISTRY= вернёт локальные :dev
+IMAGE_REGISTRY ?= ghcr.io/maksimgetmanets
+IMAGE_TAG      ?= develop
+IMAGE_ARGS     = $(if $(IMAGE_REGISTRY),-var image_registry=$(IMAGE_REGISTRY) -var image_tag=$(IMAGE_TAG),)
 # Доп. аргументы terraform apply, например DEPLOY_EXTRA="-replace=helm_release.alloy"
 DEPLOY_EXTRA  ?=
 VAULT_ARGS    ?= -e @group_vars/vault.yml --ask-vault-pass --ask-become-pass
@@ -33,7 +37,7 @@ vm-setup:
 deploy:
 > @test -f "$(VM_KUBECONFIG)" || { echo "Нет $(VM_KUBECONFIG). Сначала: make vm-setup"; exit 1; }
 > cd terraform && terraform init -input=false && terraform apply -auto-approve -input=false \
->   -var kube_config_path=$(VM_KUBECONFIG) -var kube_context=$(VM_CONTEXT) $(DEPLOY_TARGETS) $(DEPLOY_EXTRA)
+>   -var kube_config_path=$(VM_KUBECONFIG) -var kube_context=$(VM_CONTEXT) $(IMAGE_ARGS) $(DEPLOY_TARGETS) $(DEPLOY_EXTRA)
 
 # Разрешить Chaos Mesh бить по namespace demo (без аннотации эксперименты туда не пройдут)
 chaos-enable:

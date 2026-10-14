@@ -49,12 +49,12 @@ resource "helm_release" "llm_assistant" {
   chart     = "${path.module}/../llm/chart"
   timeout   = 300
 
-  values = [yamlencode({
+  values = [yamlencode(merge({
     provider  = local.llm_provider
     openai    = { model = var.openai_model, baseUrl = var.openai_base_url }
     anthropic = { model = var.anthropic_model }
     mock      = !local.llm_enabled
-  })]
+  }, { for k, v in { image = local.images["llm-assistant"] } : k => v if local.use_registry }))]
 
   set_sensitive {
     name  = "openai.apiKey"
