@@ -52,4 +52,16 @@ deploy-status:
 > KUBECONFIG=$(VM_KUBECONFIG) kubectl get nodes
 > KUBECONFIG=$(VM_KUBECONFIG) kubectl get pods -A
 
-.PHONY: vm-setup deploy deploy-status chaos-enable chaos-status
+
+# Сценарий Chaos Mesh с замером: make chaos-run SCENARIO=orders-cpu-stress RUNS=3
+SCENARIO ?= orders-pod-kill
+RUNS     ?= 1
+PAUSE    ?= 200
+chaos-run:
+> KUBECONFIG=$(VM_KUBECONFIG) python3 chaos/chaos_run.py chaos/experiments/$(SCENARIO).yaml --runs $(RUNS) --pause $(PAUSE) --csv docs/results/chaos-$(SCENARIO).csv
+
+# Снять все эксперименты (аварийно)
+chaos-stop:
+> KUBECONFIG=$(VM_KUBECONFIG) kubectl -n demo delete podchaos,networkchaos,stresschaos --all --ignore-not-found
+
+.PHONY: vm-setup deploy deploy-status chaos-enable chaos-status chaos-run chaos-stop
