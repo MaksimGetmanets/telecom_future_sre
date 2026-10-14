@@ -1,0 +1,4 @@
+tests
+chart
+__pycache__
+.pytest_cache

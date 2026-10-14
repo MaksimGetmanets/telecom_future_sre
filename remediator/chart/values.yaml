@@ -12,6 +12,9 @@ targetNamespace: demo
 # Содержимое policies.yaml. Terraform подставляет файл remediator/policies.yaml
 policiesYaml: ""
 
+# URL LLM-ассистента (POST /diagnose). Пусто — советник выключен. Terraform ставит, когда задан openai_api_key
+llmAssistantUrl: ""
+
 # Необязательно: токен для вебхука (Alertmanager шлёт Authorization: Bearer ...) и Telegram
 webhookToken: ""
 telegram:
