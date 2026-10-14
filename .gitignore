@@ -6,3 +6,7 @@ ansible/inventory/hosts.ini
 ansible/group_vars/vault.yml
 kubeconfig-*.yaml
 *.retry
+
+.tgbot/
+.env
+*.exe
