@@ -7,14 +7,16 @@ defaults:
   allowed_namespaces: [demo]   # в остальных namespace remediator ничего не трогает
 
 policies:
-  # Рост ошибок / утечка памяти -> перезапуск (лечит /fault и /leak, состояние живёт в памяти пода)
+  # Рост ошибок / утечка памяти -> перезапуск (лечит /fault и /leak, состояние живёт в памяти пода).
+  # DemoHighLatency тоже здесь: сбой задержки из chaos/fault.sh сидит в памяти каждого пода, добавление реплик его
+  # не снимает (старые поды остаются медленными), лечит только перезапуск.
   - name: restart-on-errors
-    match: { alertname: "(DemoHighErrorRate|DemoMemoryHigh|.*ErrorBudgetBurn.*|.*Availability.*)" }
+    match: { alertname: "(DemoHighErrorRate|DemoHighLatency|DemoMemoryHigh|.*ErrorBudgetBurn.*|.*Availability.*)" }
     action: restart
 
-  # Рост задержки -> добавить реплику (до max). Только для orders: задержка gateway обычно приходит от orders,
+  # Рост задержки из-за нагрузки (SLO-алерты Sloth) -> добавить реплику (до max). Только для orders: задержка gateway обычно приходит от orders,
   # а лишние реплики gateway её не лечат (такой алерт остаётся без действия: skipped_no_policy, только Telegram).
   - name: scale-on-latency
-    match: { alertname: "(DemoHighLatency|.*Latency.*)", deployment: "orders" }
+    match: { alertname: ".*Latency.*", deployment: "orders" }
     action: scale
     params: { step: 1, max: 4 }

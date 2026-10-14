@@ -92,3 +92,21 @@ def test_csv_and_summary(tmp_path):
     assert data[0]["scenario"] == "errors"
     assert "2/3" in mttr.summarize(rows)
     assert "80.0" in mttr.summarize(rows)
+
+
+def test_action_before_polled_alert_clamps_detect_and_skipped_is_noted():
+    ft = FakeTime()
+    start = ft.t
+    logs = []
+    res = mttr.measure(
+        "latency", 1, inject=lambda: None, clear=lambda: None,
+        get_alerts=lambda: ["DemoHighLatency"] if ft.t - start >= 50 else [],
+        get_audit=lambda: [
+            {"ts": iso(start + 40), "status": "skipped_at_max", "detail": "уже 4 реплик", "alertname": "X"},
+            {"ts": iso(start + 45), "status": "executed", "alertname": "DemoHighLatency"},
+        ],
+        probe=lambda: True, timeout=200, poll=5, ok_probes=2, clock=ft.clock, sleep=ft.sleep, log=logs.append,
+    )
+    assert res.action_s == 45
+    assert res.detect_s == 45  # опрос увидел алерт позже действия: берём время действия
+    assert any("skipped_at_max" in n for n in res.notes)

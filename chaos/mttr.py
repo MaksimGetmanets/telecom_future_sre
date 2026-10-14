@@ -26,6 +26,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 
 ACTION_STATUSES = {"executed", "dry_run", "error"}  # остальные статусы (skipped_*) действием не считаются
+CLEAN_PATTERN = "Demo.*"  # SLO-алерты Sloth (окна до 6 ч) гаснут часами, их не ждём: см. --clean-pattern
 SCENARIOS = {
     "errors": {"fault": "errorRate=0.5", "alert": "DemoHighErrorRate|.*ErrorBudgetBurn.*"},
     "latency": {"fault": "delayMs=600", "alert": ".*Latency.*"},
@@ -59,8 +60,9 @@ def probe_gateway(max_latency_s: float) -> bool:
     return code == 200 and (time.monotonic() - start) <= max_latency_s
 
 
-def firing_alerts(pattern: str) -> list[str]:
-    query = f'ALERTS{{alertstate="firing",namespace="demo",alertname=~"{pattern}"}}'
+def firing_alerts(pattern: str, namespace_filter: bool = True) -> list[str]:
+    ns = 'namespace="demo",' if namespace_filter else ""
+    query = f'ALERTS{{alertstate="firing",{ns}alertname=~"{pattern}"}}'
     code, body = kubectl_raw(f"{PROM_PROXY}/api/v1/query?query={urllib.parse.quote(query)}")
     if code != 200:
         return []
@@ -82,9 +84,24 @@ def audit_entries() -> list[dict]:
     return data if isinstance(data, list) else data.get("items", [])
 
 
-def run_fault(service: str, arg: str) -> None:
+def run_fault(service: str, arg: str, attempts: int = 3) -> None:
+    """Внести/снять сбой с повторами: поды могут быть в процессе перезапуска, port-forward не сразу готов."""
     script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fault.sh")
-    subprocess.run(["bash", script, service, arg], check=True, capture_output=True, text=True)
+    for attempt in range(1, attempts + 1):
+        proc = subprocess.run(["bash", script, service, arg], capture_output=True, text=True)
+        if proc.returncode == 0:
+            return
+        if attempt == attempts:
+            raise RuntimeError(f"fault.sh {service} {arg} не удался: {proc.stderr.strip() or proc.stdout.strip()}")
+        time.sleep(5)
+
+
+def safe_clear(service: str) -> None:
+    """Снятие сбоя в конце прогона не должно ронять скрипт: результат уже измерен."""
+    try:
+        run_fault(service, "clear")
+    except RuntimeError as exc:
+        print(f"    предупреждение: {exc}", flush=True)
 
 
 def start_load(rps: int, name: str = "mttr-load"):
@@ -105,6 +122,32 @@ def stop_load(proc, name: str = "mttr-load") -> None:
         proc.terminate()
     subprocess.run(["kubectl", "-n", "demo", "delete", "pod", name, "--ignore-not-found", "--wait=false"],
                    capture_output=True, text=True)
+
+
+def get_replicas(service: str) -> int | None:
+    proc = subprocess.run(["kubectl", "-n", "demo", "get", "deploy", service, "-o", "jsonpath={.spec.replicas}"],
+                          capture_output=True, text=True)
+    return int(proc.stdout) if proc.returncode == 0 and proc.stdout.strip().isdigit() else None
+
+
+def reset_state(service: str, replicas: int | None, clear_timeout: float, log=print, sleep=time.sleep,
+                clock=time.time, pattern: str = CLEAN_PATTERN) -> bool:
+    """Чистое начальное состояние: прежнее число реплик, сбой снят, нет горящих алертов (иначе замер искажён)."""
+    run_fault(service, "clear")
+    if replicas is not None and get_replicas(service) != replicas:
+        log(f"возвращаю {service} к {replicas} репликам")
+        subprocess.run(["kubectl", "-n", "demo", "scale", f"deploy/{service}", f"--replicas={replicas}"],
+                       capture_output=True, text=True)
+    subprocess.run(["kubectl", "-n", "demo", "rollout", "status", f"deploy/{service}", "--timeout=180s"],
+                   capture_output=True, text=True)
+    start = clock()
+    while clock() - start < clear_timeout:
+        names = firing_alerts(pattern, namespace_filter=False)
+        if not names:
+            return True
+        log(f"жду, пока погаснут алерты: {', '.join(names)}")
+        sleep(15)
+    return False
 
 
 @dataclass
@@ -156,8 +199,17 @@ def measure(scenario: str, run: int, *, inject, clear, get_alerts, get_audit, pr
                     except (KeyError, ValueError):
                         continue
                     # ts в аудите с точностью до секунды, поэтому допуск 1 с
+                    if ts >= t0 - 1 and str(entry.get("status", "")).startswith("skipped") and entry.get("alertname"):
+                        note = f"{entry['status']}: {entry.get('detail', '')}".strip(": ")
+                        if note not in res.notes:
+                            res.notes.append(note)
+                            log(f"ремедиатор пропустил действие ({note})")
                     if ts >= t0 - 1 and entry.get("status") in ACTION_STATUSES:
                         res.action_s = round(max(ts - t0, 0.0), 1)
+                        # алерт не мог дойти до ремедиатора раньше, чем сработал: расхождение даёт шаг опроса (около 8 с)
+                        if res.detect_s is None or res.detect_s > res.action_s:
+                            res.detect_s = res.action_s
+                            res.alert = res.alert or entry.get("alertname", "")
                         res.action_status = str(entry.get("status"))
                         log(f"{res.action_s} с: ремедиатор отреагировал ({res.action_status})")
                         break
@@ -210,6 +262,9 @@ def main(argv=None) -> int:
     p.add_argument("--max-latency", type=float, default=0.3, help="проба успешна, если ответ быстрее, с")
     p.add_argument("--pause", type=float, default=60.0, help="пауза между прогонами (кулдаун ремедиатора 180 с), с")
     p.add_argument("--rps", type=int, default=20, help="фоновая нагрузка, запросов/с (0 = не запускать, нагрузку дадите сами)")
+    p.add_argument("--base-replicas", type=int, default=2, help="исходное число реплик сервиса, к нему возвращаем перед каждым прогоном (0 = взять текущее)")
+    p.add_argument("--clean-pattern", default=CLEAN_PATTERN, help="regexp имён алертов, которые должны погаснуть перед прогоном (по умолчанию только Demo*)")
+    p.add_argument("--clean-timeout", type=float, default=600.0, help="сколько ждать погасших алертов перед прогоном, с")
     p.add_argument("--csv", default="docs/results/mttr.csv")
     args = p.parse_args(argv)
 
@@ -224,7 +279,6 @@ def main(argv=None) -> int:
         rows = run_all(args, sc)
     finally:
         stop_load(load)
-    write_csv(args.csv, rows)
     print(summarize(rows))
     print(f"CSV: {args.csv}")
     return 0 if all(r.recovered for r in rows) else 1
@@ -232,14 +286,18 @@ def main(argv=None) -> int:
 
 def run_all(args, sc) -> list:
     rows = []
+    base_replicas = args.base_replicas if args.base_replicas else get_replicas(args.service)
     for i in range(1, args.runs + 1):
-        print(f"[{i}/{args.runs}] {args.scenario}: вношу сбой {sc['fault']} на {args.service}", flush=True)
-        print("    снимаю старые сбои...", flush=True)
-        run_fault(args.service, "clear")  # чистое начальное состояние
+        print(f"[{i}/{args.runs}] {args.scenario}: готовлю чистое состояние ({args.service}: {base_replicas} реплик)...", flush=True)
+        clean = reset_state(args.service, base_replicas, args.clean_timeout, pattern=args.clean_pattern,
+                            log=lambda m: print(f"    {m}", flush=True))
+        if not clean:
+            print("    ВНИМАНИЕ: алерты не погасли за отведённое время, замер может быть искажён", flush=True)
+        print(f"    вношу сбой {sc['fault']} на {args.service}", flush=True)
         res = measure(
             args.scenario, i,
             inject=lambda: run_fault(args.service, sc["fault"]),
-            clear=lambda: run_fault(args.service, "clear"),
+            clear=lambda: safe_clear(args.service),
             get_alerts=lambda: firing_alerts(sc["alert"]),
             get_audit=audit_entries,
             probe=lambda: probe_gateway(args.max_latency),
@@ -249,7 +307,9 @@ def run_all(args, sc) -> list:
         print(f"    алерт через {res.detect_s} с, действие через {res.action_s} с ({res.action_status}), "
               f"MTTR {res.mttr_s} с, recovered={res.recovered}", flush=True)
         rows.append(res)
+        write_csv(args.csv, [res])  # сразу после каждого прогона: ни один результат не пропадёт при сбое
         if i < args.runs:
+            print(f"    спим {args.pause} s...")
             time.sleep(args.pause)
     return rows
 
