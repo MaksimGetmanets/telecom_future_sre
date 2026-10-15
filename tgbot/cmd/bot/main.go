@@ -22,15 +22,29 @@ func main() {
 	}
 
 	// Проверка связи
-	msg := tgbotapi.NewMessage(chatId, "🚀 Ремедиатор запущен и готов принимать алерты!")
+	msg := tgbotapi.NewMessage(chatId, "🚀 Ремедиатор запущен, ИИ-диагностика подключена!")
 	if _, err := bot.Send(msg); err != nil {
 		log.Printf("Предупреждение: проверьте связь с ботом: %v", err)
 	}
 
-	// Инициализируем наш кастомный роутер и хендлер из internal
+	// Инициализируем хендлер алертов
 	mux := http.NewServeMux()
 	alertHandler := alert.NewHandler(bot, chatId)
 	alertHandler.RegisterRoutes(mux)
+
+	// Запускаем Long Polling для обработки нажатий на инлайн-кнопки
+	go func() {
+		u := tgbotapi.NewUpdate(0)
+		u.Timeout = 60
+		updates := bot.GetUpdatesChan(u)
+
+		for update := range updates {
+			// Нас интересуют только клики по кнопкам (CallbackQuery)
+			if update.CallbackQuery != nil {
+				alertHandler.HandleCallback(update.CallbackQuery)
+			}
+		}
+	}()
 
 	log.Println("Бот готов к работе. Ожидание вебхуков от Alertmanager на порту :8080...")
 	if err := http.ListenAndServe(":8080", mux); err != nil {
