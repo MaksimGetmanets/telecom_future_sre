@@ -166,7 +166,7 @@ groups:
       severity: page
       sloth_severity: page
     annotations:
-      runbook_url: docs/runbooks/high-error-rate.md
+      runbook_url: docs/runbooks/rb-03-error-spike.md
       summary: 'gateway: бюджет ошибок доступности сгорает слишком быстро'
       title: (page) {{$labels.sloth_service}} {{$labels.sloth_slo}} SLO error budget
         burn rate is too fast.
@@ -348,7 +348,7 @@ groups:
       severity: page
       sloth_severity: page
     annotations:
-      runbook_url: docs/runbooks/high-latency.md
+      runbook_url: docs/runbooks/rb-02-high-latency.md
       summary: 'gateway: бюджет задержки (p95 < 300 мс) сгорает слишком быстро'
       title: (page) {{$labels.sloth_service}} {{$labels.sloth_slo}} SLO error budget
         burn rate is too fast.

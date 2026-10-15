@@ -1,8 +1,8 @@
 # RB-04: Утечка памяти / OOMKilled
 
-**Алерты:** `DemoMemoryHigh` (warning), `DemoContainerOOMKilled` (critical)
-**Затронутый SLO:** availability и latency (косвенно, через рестарты и GC-паузы)
-**Владелец:** <кто> · **Последняя проверка:** <дата, `/leak`>
+**Алерты:** `DemoMemoryHigh` (severity: ticket); для OOMKilled отдельного алерта нет, признак проверяется вручную (см. ниже)
+**Затронутый SLO:** доступность и latency (косвенно, через рестарты и GC-паузы)
+**Владелец:** команда проекта (Володин А., Гетманец М.) · **Последняя проверка:** не проверялся в прогонах 15.10.2026 (ручка `/leak` есть в приложении, на стенде сценарий не снимался)
 
 ## 1. Симптомы и влияние
 - Память пода растёт без возврата к базовому уровню.
@@ -10,11 +10,11 @@
 - В финале контейнер убивается по OOM и перезапускается: кратковременная недоступность.
 
 ## 2. Диагностика
-1. Дашборд «Demo / JVM»: heap, GC pause, working set памяти по подам.
+1. Дашборд «Demo Shop: здоровье сервиса и логи»: «Heap JVM по подам», «GC: время пауз», «Память контейнера (working set) и лимит».
 2. PromQL:
    - `container_memory_working_set_bytes{namespace="demo", container="orders"}` рядом с limit
-   - `jvm_memory_used_bytes{area="heap"}` и `rate(jvm_gc_pause_seconds_sum[5m])`
-   - `kube_pod_container_status_last_terminated_reason{reason="OOMKilled"}`
+   - `jvm_memory_used_bytes{application="orders", area="heap"}` и `rate(jvm_gc_pause_seconds_sum[5m])`
+   - `kube_pod_container_status_last_terminated_reason{namespace="demo", reason="OOMKilled"}`
 3. Подтверждение причины:
    ```bash
    kubectl -n demo describe pod <pod>    # Last State: Terminated, Reason: OOMKilled
@@ -22,10 +22,10 @@
 4. Логи: `{namespace="demo", app="orders"} |= "OutOfMemory"`.
 5. Типичная причина в демо: вызов `/leak`.
 
-## 3. Автоматическое действие (Remediator)
-- Для `DemoMemoryHigh`: `restart` пода до OOM, чтобы избежать внезапного падения.
-- Для `DemoContainerOOMKilled`: Kubernetes уже перезапустил контейнер; Remediator проверяет, что под вернулся в Ready.
-- Лимиты: не чаще 1 рестарта за 15 минут на сервис (иначе «лечим симптом по кругу»).
+## 3. Автоматическое действие (remediator)
+- `DemoMemoryHigh` (старое поколение кучи orders > 80% дольше минуты): `restart` по политике `restart-on-errors`, чтобы избежать внезапного падения.
+- Когда контейнер уже убит по OOM, Kubernetes перезапускает его сам, действий remediator не требуется.
+- Лимиты: пауза 180 с, не более 6 действий в час на deployment (иначе «лечим симптом по кругу»).
 - Режим: dry-run по умолчанию.
 
 ## 4. Ручные шаги

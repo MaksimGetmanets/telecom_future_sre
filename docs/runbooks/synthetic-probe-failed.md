@@ -17,8 +17,8 @@
 
 ## Действия
 - Под в `CrashLoopBackOff` или `ImagePullBackOff`: смотрите `kubectl -n demo describe pod`, откатите релиз (`kubectl -n demo rollout undo deploy/<service>`).
-- Ошибки 5xx на orders: см. `docs/runbooks/high-error-rate.md` (перезапуск делает remediator).
-- Таймауты без ошибок в логах: перегрузка, см. `docs/runbooks/high-latency.md`.
+- Ошибки 5xx на orders: см. `docs/runbooks/rb-03-error-spike.md` (перезапуск делает remediator).
+- Таймауты без ошибок в логах: перегрузка, см. `docs/runbooks/rb-02-high-latency.md`.
 - Пробы падают, а приложение отвечает вручную (`curl http://gateway.demo.svc:8080/orders` из пода): проблема в Blackbox Exporter или сети, перезапустите его.
 
 ## После инцидента
