@@ -13,7 +13,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-const pythonAssistantURL = "http://127.0.0.1"
+const pythonAssistantURL = "http://127.0.0.1:8000/diagnose"
 
 type Handler struct {
 	bot    *tgbotapi.BotAPI
@@ -59,109 +59,163 @@ func (h *Handler) processAlert(alert Alert) {
 		statusEmoji = "⚠️"
 	}
 
-	text := fmt.Sprintf("%s **АЛЕРТ [%s]**\nИмя: %s\nNamespace: %s\nОписание: %s",
-		statusEmoji, alert.Status, alertName, namespace, alert.Annotations["description"])
+	// Формируем основную часть сообщения.
+	text := fmt.Sprintf(
+		"%s *АЛЕРТ [%s]*\nИмя: %s\nNamespace: %s\nОписание: %s",
+		statusEmoji,
+		alert.Status,
+		alertName,
+		namespace,
+		alert.Annotations["description"],
+	)
 
-	tgMsg := tgbotapi.NewMessage(h.chatId, text)
-	tgMsg.ParseMode = "Markdown"
+	msg := tgbotapi.NewMessage(h.chatId, text)
+	msg.ParseMode = "Markdown"
 
-	sentMsg, err := h.bot.Send(tgMsg)
-	if err != nil {
-		log.Printf("[ERROR] Ошибка отправки базового алерта: %v", err)
+	// Закрытые инциденты отправляем без ИИ.
+	if alert.Status != "firing" {
+		if _, err := h.bot.Send(msg); err != nil {
+			log.Printf("[ERROR] Ошибка отправки алерта: %v", err)
+		}
 		return
 	}
 
-	// Запускаем ИИ-диагностику только для активных инцидентов
-	if alert.Status == "firing" {
-		go h.requestAIDiagnosis(alert, sentMsg.MessageID)
+	// Получаем диагноз до отправки сообщения в Telegram.
+	diag, err := h.requestAIDiagnosis(alert)
+	if err != nil {
+		log.Printf("[ERROR] Ошибка ИИ-диагностики: %v", err)
+		msg.Text += "\n\n⚠️ Диагностика ИИ временно недоступна."
+	} else {
+		msg.Text += fmt.Sprintf(
+			"\n\n🧠 *Диагноз ИИ (%s)*\n\n"+
+				"*Гипотеза:* %s\n"+
+				"*Уверенность:* %.2f",
+			diag.Model,
+			diag.Hypothesis,
+			diag.Confidence,
+		)
+
+		if len(diag.Evidence) > 0 {
+			msg.Text += "\n\n*Обоснование:*\n"
+			for _, evidence := range diag.Evidence {
+				msg.Text += fmt.Sprintf("• %s\n", evidence)
+			}
+		}
+
+		if diag.FallbackReason != "" {
+			msg.Text += fmt.Sprintf(
+				"\n⚠️ Причина перехода на резервный режим: %s",
+				diag.FallbackReason,
+			)
+		}
+
+		action := diag.SuggestedAction
+
+		if diag.Validated && action.Type != "none" {
+			var buttonText string
+
+			switch action.Type {
+			case "restart":
+				buttonText = fmt.Sprintf("🔄 Перезапустить %s", action.Deployment)
+			case "scale":
+				buttonText = fmt.Sprintf(
+					"📈 Масштабировать %s до %d реплик",
+					action.Deployment,
+					action.Replicas,
+				)
+			case "rollback":
+				buttonText = fmt.Sprintf("⏪ Откатить %s", action.Deployment)
+			}
+
+			if buttonText != "" {
+				callbackData := fmt.Sprintf(
+					"exec:%s:%s:%d",
+					action.Type,
+					action.Deployment,
+					action.Replicas,
+				)
+
+				msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+					tgbotapi.NewInlineKeyboardRow(
+						tgbotapi.NewInlineKeyboardButtonData(
+							buttonText,
+							callbackData,
+						),
+					),
+				)
+			}
+		} else if diag.RejectedReason != "" {
+			msg.Text += fmt.Sprintf(
+				"\n\n⚠️ *Авто-действие заблокировано:* %s",
+				diag.RejectedReason,
+			)
+		}
+	}
+
+	// Единственная отправка сообщения для firing-алерта.
+	if _, err := h.bot.Send(msg); err != nil {
+		log.Printf("[ERROR] Ошибка отправки сообщения в Telegram: %v", err)
 	}
 }
 
-func (h *Handler) requestAIDiagnosis(alert Alert, parentMsgID int) {
+type diagnosisResponse struct {
+	Hypothesis     string   `json:"hypothesis"`
+	Confidence     float64  `json:"confidence"`
+	Evidence       []string `json:"evidence"`
+	Validated      bool     `json:"validated"`
+	RejectedReason string   `json:"rejected_reason"`
+	Model          string   `json:"model"`
+	FallbackReason string   `json:"fallback_reason"`
+
+	SuggestedAction struct {
+		Type       string `json:"type"`
+		Deployment string `json:"deployment"`
+		Replicas   int    `json:"replicas"`
+	} `json:"suggested_action"`
+}
+
+func (h *Handler) requestAIDiagnosis(
+	alert Alert,
+) (*diagnosisResponse, error) {
 	jsonData, err := json.Marshal(alert)
 	if err != nil {
-		log.Printf("[ERROR] Ошибка маршалинга для ИИ: %v", err)
-		return
+		return nil, fmt.Errorf("ошибка подготовки алерта: %w", err)
 	}
 
-	client := &http.Client{Timeout: 35 * time.Second}
-	req, err := http.NewRequest("POST", pythonAssistantURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		log.Printf("[ERROR] Ошибка создания запроса к ИИ: %v", err)
-		return
+	client := &http.Client{
+		Timeout: 35 * time.Second,
 	}
+
+	req, err := http.NewRequest(
+		http.MethodPost,
+		pythonAssistantURL,
+		bytes.NewBuffer(jsonData),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
+	}
+
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Printf("[ERROR] ИИ-сервис на Python недоступен: %v", err)
-		return
+		return nil, fmt.Errorf("Python-сервис недоступен: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[ERROR] Python ИИ-сервис вернул статус %d", resp.StatusCode)
-		return
-	}
-
-	var diag struct {
-		Hypothesis      string   `json:"hypothesis"`
-		Confidence      float64  `json:"confidence"`
-		Evidence        []string `json:"evidence"`
-		Validated       bool     `json:"validated"`
-		RejectedReason  string   `json:"rejected_reason"`
-		Model           string   `json:"model"`
-		SuggestedAction struct {
-			Type       string `json:"type"`
-			Deployment string `json:"deployment"`
-			Replicas   int    `json:"replicas"`
-		} `json:"suggested_action"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&diag); err != nil {
-		log.Printf("[ERROR] Ошибка декодирования ответа ИИ: %v", err)
-		return
-	}
-
-	aiText := fmt.Sprintf("🧠 *Диагноз ИИ (%s)*\n\n*Гипотеза:* %s\n*Уверенность:* %.2f\n\n",
-		diag.Model, diag.Hypothesis, diag.Confidence)
-
-	if len(diag.Evidence) > 0 {
-		aiText += "*Улики:*\n"
-		for _, e := range diag.Evidence {
-			aiText += fmt.Sprintf("• `%s`\n", e)
-		}
-		aiText += "\n"
-	}
-
-	replyMsg := tgbotapi.NewMessage(h.chatId, aiText)
-	replyMsg.ReplyToMessageID = parentMsgID
-	replyMsg.ParseMode = "Markdown"
-
-	actionType := diag.SuggestedAction.Type
-	if diag.Validated && actionType != "none" {
-		buttonText := ""
-		switch actionType {
-		case "restart":
-			buttonText = fmt.Sprintf("🔄 Перезапустить %s", diag.SuggestedAction.Deployment)
-		case "scale":
-			buttonText = fmt.Sprintf("📈 Нарастить %s до %d реплик", diag.SuggestedAction.Deployment, diag.SuggestedAction.Replicas)
-		case "rollback":
-			buttonText = fmt.Sprintf("⏪ Откатить %s", diag.SuggestedAction.Deployment)
-		}
-
-		// Формат callback-даты: exec:<action>:<deployment>:<replicas>
-		callbackData := fmt.Sprintf("exec:%s:%s:%d", actionType, diag.SuggestedAction.Deployment, diag.SuggestedAction.Replicas)
-		replyMsg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(tgbotapi.NewInlineKeyboardButtonData(buttonText, callbackData)),
+		return nil, fmt.Errorf(
+			"Python-сервис вернул HTTP %d",
+			resp.StatusCode,
 		)
-	} else if diag.RejectedReason != "" {
-		replyMsg.Text += fmt.Sprintf("⚠️ *Авто-действие заблокировано:* %s", diag.RejectedReason)
 	}
 
-	if _, err := h.bot.Send(replyMsg); err != nil {
-		log.Printf("[ERROR] Ошибка отправки диагноза в Telegram: %v", err)
+	var diag diagnosisResponse
+	if err := json.NewDecoder(resp.Body).Decode(&diag); err != nil {
+		return nil, fmt.Errorf("ошибка разбора ответа: %w", err)
 	}
+
+	return &diag, nil
 }
 
 // HandleCallback перехватывает клики по кнопкам под диагнозом
