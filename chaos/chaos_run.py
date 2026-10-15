@@ -42,7 +42,7 @@ def prom(query):
 
 
 def firing_alerts():
-    res = prom('ALERTS{alertstate="firing",namespace="demo"}')
+    res = prom('ALERTS{alertstate="firing",namespace="demo",alertname!~"Watchdog|InfoInhibitor"}')
     return {r["metric"].get("alertname", "?") for r in res}
 
 
@@ -150,6 +150,8 @@ def one_run(path, name, hold, timeout, poll):
     new = get_audit()[audit_before:]
     remed = None
     for e in new:
+        if isinstance(e, dict) and str(e.get("result", e.get("status", ""))) != "executed":
+            continue
         ts = entry_epoch(e)
         if ts is not None:
             remed = max(0.0, ts - t0)
@@ -159,6 +161,21 @@ def one_run(path, name, hold, timeout, poll):
         "recovered_s": recovered, "recovered_during_chaos": during,
         "alerts": ";".join(sorted(seen)), "audit": ";".join(entry_brief(e) for e in new),
     }
+
+
+def wait_quiet(limit, step=15):
+    """Ждём, пока в demo не останется активных алертов и пробы не станут успешными."""
+    t0 = time.time()
+    while True:
+        al = firing_alerts()
+        pm = probe_min()
+        if not al and (pm is None or pm >= 1):
+            return True
+        if time.time() - t0 >= limit:
+            return False
+        print("  ждём тишины: алерты %s, probe_success=%s (прошло %d с из %d)" % (
+            sorted(al) or "-", pm, time.time() - t0, limit))
+        time.sleep(step)
 
 
 def fmt(v):
@@ -173,6 +190,8 @@ def main():
     ap.add_argument("--hold", type=int, help="сколько держать сбой, с (по умолчанию spec.duration, иначе 90)")
     ap.add_argument("--timeout", type=int, default=600)
     ap.add_argument("--poll", type=float, default=5.0)
+    ap.add_argument("--wait-quiet", type=int, default=0, metavar="СЕК",
+                    help="перед каждым прогоном ждать погасания алертов не дольше СЕК секунд (по умолчанию не ждать)")
     ap.add_argument("--csv")
     a = ap.parse_args()
 
@@ -186,6 +205,8 @@ def main():
     rows = []
     for i in range(1, a.runs + 1):
         print("\n--- прогон %d/%d ---" % (i, a.runs))
+        if a.wait_quiet and not wait_quiet(a.wait_quiet):
+            raise SystemExit("За %d с алерты не погасли, прогон не начат." % a.wait_quiet)
         r = one_run(a.manifest, name, hold, a.timeout, a.poll)
         r.update(scenario=name, run=i, ts=datetime.datetime.now().isoformat(timespec="seconds"))
         rows.append(r)
