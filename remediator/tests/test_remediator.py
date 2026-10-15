@@ -209,3 +209,70 @@ def test_demo_high_latency_restarts_instead_of_scaling(policies):
     engine, kube = make(policies)
     [r] = engine.handle(payload(alert("DemoHighLatency", dep="orders")))
     assert r["status"] == "executed" and kube.calls[0][0] == "restart"
+
+
+# --- подтверждённые человеком действия (кнопка в Telegram) ---
+
+def test_manual_restart_executes_and_is_audited(policies):
+    engine, kube = make(policies)
+    r = engine.execute_manual("restart", "demo", "orders")
+    assert r["status"] == "executed" and kube.calls == [("restart", "demo", "orders")]
+    assert r["policy"] == "manual-confirm"
+
+
+def test_manual_scale_to_requested_replicas(policies):
+    engine, kube = make(policies, replicas=2)
+    r = engine.execute_manual("scale", "demo", "orders", 3)
+    assert r["status"] == "executed" and (r["replicas_from"], r["replicas_to"]) == (2, 3)
+    assert kube.calls == [("scale", "demo", "orders", 3)]
+
+
+def test_manual_scale_without_replicas_adds_one(policies):
+    engine, kube = make(policies, replicas=2)
+    r = engine.execute_manual("scale", "demo", "orders")
+    assert r["replicas_to"] == 3
+
+
+def test_manual_scale_above_max_rejected(policies):
+    engine, kube = make(policies, replicas=2)
+    r = engine.execute_manual("scale", "demo", "orders", 99)
+    assert r["status"] == "rejected" and kube.calls == []
+
+
+def test_manual_rejects_unknown_action_and_foreign_namespace(policies):
+    engine, kube = make(policies)
+    assert engine.execute_manual("rollback", "demo", "orders")["status"] == "rejected"
+    assert engine.execute_manual("restart", "kube-system", "coredns")["status"] == "skipped_namespace"
+    assert kube.calls == []
+
+
+def test_manual_respects_cooldown_and_dry_run(policies):
+    engine, kube = make(policies)
+    engine.execute_manual("restart", "demo", "orders")
+    r = engine.execute_manual("restart", "demo", "orders")
+    assert r["status"] == "skipped_guard" and len(kube.calls) == 1
+    engine2, kube2 = make(policies, dry_run=True)
+    assert engine2.execute_manual("restart", "demo", "orders")["status"] == "dry_run" and kube2.calls == []
+
+
+def test_manual_kube_error_reported(policies):
+    engine, kube = make(policies)
+
+    def boom(ns, dep):
+        raise RuntimeError("forbidden")
+
+    kube.restart = boom
+    r = engine.execute_manual("restart", "demo", "orders")
+    assert r["status"] == "error" and "forbidden" in r["detail"]
+
+
+def test_http_execute_requires_token_and_validates(policies):
+    c = client(policies, token="s3cret")
+    body = {"action": "restart", "namespace": "demo", "deployment": "orders"}
+    assert c.post("/execute", json=body).status_code == 401
+    h = {"Authorization": "Bearer s3cret"}
+    assert c.post("/execute", json={"action": "restart"}, headers=h).status_code == 422
+    assert c.post("/execute", json={**body, "replicas": "3"}, headers=h).status_code == 422
+    resp = c.post("/execute", json=body, headers=h)
+    assert resp.status_code == 200 and resp.json()["status"] == "executed"
+    assert any(e["event"] == "manual_remediation" for e in c.get("/audit", headers=h).json())

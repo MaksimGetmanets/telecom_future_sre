@@ -43,6 +43,19 @@ def create_app(settings: Settings | None = None, kube: Kube | None = None, polic
             ACTIONS.labels(r["action"] or "none", r["status"]).inc()
         return {"results": results}
 
+    @app.post("/execute", dependencies=[Depends(check_token)])
+    def execute(payload: dict = Body(...)):
+        """Выполнить действие, которое человек подтвердил в Telegram. Ограничения те же, что у автоматики."""
+        action, namespace, deployment = payload.get("action"), payload.get("namespace"), payload.get("deployment")
+        replicas = payload.get("replicas")
+        if not all(isinstance(v, str) and v for v in (action, namespace, deployment)):
+            raise HTTPException(status_code=422, detail="нужны строки action, namespace, deployment")
+        if replicas is not None and (isinstance(replicas, bool) or not isinstance(replicas, int)):
+            raise HTTPException(status_code=422, detail="replicas должно быть целым числом")
+        result = engine.execute_manual(action, namespace, deployment, replicas or None, str(payload.get("source", "telegram"))[:40])
+        ACTIONS.labels(result["action"] or "none", "manual_" + result["status"]).inc()
+        return result
+
     @app.get("/audit", dependencies=[Depends(check_token)])
     def get_audit(limit: int = 50):
         return audit.recent(limit)

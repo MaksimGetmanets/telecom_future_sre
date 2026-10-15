@@ -22,7 +22,7 @@ func main() {
 	}
 
 	// Проверка связи
-	msg := tgbotapi.NewMessage(chatId, "🚀 Ремедиатор запущен, ИИ-диагностика подключена!")
+	msg := tgbotapi.NewMessage(chatId, "🚀 Бот запущен: принимаю алерты, дописываю ИИ-диагностику, действия выполняются после подтверждения.")
 	if _, err := bot.Send(msg); err != nil {
 		log.Printf("Предупреждение: проверьте связь с ботом: %v", err)
 	}
@@ -36,6 +36,7 @@ func main() {
 	go func() {
 		u := tgbotapi.NewUpdate(0)
 		u.Timeout = 60
+		u.AllowedUpdates = []string{"callback_query"}
 		updates := bot.GetUpdatesChan(u)
 
 		for update := range updates {
