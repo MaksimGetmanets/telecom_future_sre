@@ -116,6 +116,19 @@ func TestResolvedAlertAndBadRequests(t *testing.T) {
 	}
 }
 
+// В правилах алертов есть summary, а description нет: в сообщение должен попасть summary.
+func TestDescriptionFallsBackToSummary(t *testing.T) {
+	buf := captureLog(t)
+	t.Setenv("LLM_ASSISTANT_URL", "http://127.0.0.1:1/diagnose")
+	h := NewHandler(nil, chats.Open(""))
+	h.processAlert(Alert{Status: "resolved",
+		Labels:      map[string]string{"alertname": "SyntheticSloBurn", "namespace": "demo"},
+		Annotations: map[string]string{"summary": "Проба orders: бюджет SLO сгорает"}})
+	if out := buf.String(); !strings.Contains(out, "Описание: Проба orders: бюджет SLO сгорает") {
+		t.Errorf("summary не попал в сообщение:\n%s", out)
+	}
+}
+
 // Без бота команды и кнопки не обрабатываются и не падают.
 func TestNilBotIgnoresMessagesAndCallbacks(t *testing.T) {
 	h := NewHandler(nil, chats.Open(""))

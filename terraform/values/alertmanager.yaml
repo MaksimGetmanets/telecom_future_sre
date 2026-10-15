@@ -21,6 +21,17 @@ alertmanager:
           group_wait: 10s
           group_interval: 1m
           repeat_interval: 30m
+    # Дедупликация по причине: пока горит алерт первопричины, его симптомы не шлются отдельно
+    # (ни в Telegram, ни в remediator: лишнего рестарта gateway из-за сбоя orders больше не будет).
+    inhibit_rules:
+      # сбой orders -> gateway и внешние пробы деградируют как следствие
+      - source_matchers: ['alertname=~"DemoHighErrorRate|DemoHighLatency|OrdersAvailabilityBurn|OrdersLatencyBurn"']
+        target_matchers: ['alertname=~"GatewayAvailabilityBurn|GatewayLatencyBurn|SyntheticProbeFailed|SyntheticSloBurn"']
+        equal: [namespace]
+      # быстрый алерт пробы уже сообщил о проблеме: долгое сгорание бюджета по тому же сервису дублирует его
+      - source_matchers: ['alertname="SyntheticProbeFailed"']
+        target_matchers: ['alertname="SyntheticSloBurn"']
+        equal: [namespace, deployment]
     receivers:
       - name: "null"
       - name: remediator
