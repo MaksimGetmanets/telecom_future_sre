@@ -67,6 +67,8 @@ spec:
             (synthetic:probe_failure:ratio_1m{service="{{ $name }}"} > 0.0864 and synthetic:probe_failure:ratio_5m{service="{{ $name }}"} > 0.0864)
             or
             (synthetic:probe_failure:ratio_5m{service="{{ $name }}"} > 0.036 and synthetic:probe_failure:ratio_30m{service="{{ $name }}"} > 0.036)
+          # единичный провал пробы (подвисание ВМ на пару секунд) не должен будить дежурного
+          for: 2m
           labels:
             severity: page
             namespace: demo

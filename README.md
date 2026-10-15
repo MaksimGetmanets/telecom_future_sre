@@ -147,7 +147,7 @@ chaos/fault.sh orders clear                        # снять сбой вру�
 Подробно: [`docs/slo.md`](docs/slo.md).
 
 **Алерты** приходят в Alertmanager с лейблами `namespace=demo`, `deployment`, `severity=page` и ссылкой `runbook_url` (каталог `docs/runbooks/`).
-Маршрут: remediator и Telegram-бот.
+Маршрут: remediator и Telegram-бот. Дедупликация: `inhibit_rules` не шлют симптомы (gateway, внешние пробы), пока горит алерт первопричины (orders), см. `terraform/values/alertmanager.yaml`.
 
 **Дашборды** (Grafana как код, `observability/dashboards/`): `demo-shop-slo` (SLI, burn rate, остаток бюджета), `demo-shop-health` (поды, JVM, соединения, логи), `k6-capacity`, синтетические пробы.
 

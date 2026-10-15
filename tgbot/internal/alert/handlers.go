@@ -130,6 +130,12 @@ func (h *Handler) processAlert(alert Alert) {
 		statusEmoji = "⚠️"
 	}
 
+	// В наших правилах есть summary, а description часто нет: берём что есть, иначе поле «Описание» пустое.
+	description := alert.Annotations["description"]
+	if strings.TrimSpace(description) == "" {
+		description = alert.Annotations["summary"]
+	}
+
 	// Всё, что пришло из алерта, экранируем: описания часто содержат символы _ * < > &.
 	baseText := fmt.Sprintf(
 		"%s <b>АЛЕРТ [%s]</b>\nИмя: %s\nNamespace: %s\nОписание: %s",
@@ -137,7 +143,7 @@ func (h *Handler) processAlert(alert Alert) {
 		diag.Esc(alert.Status),
 		diag.Esc(alertName),
 		diag.Esc(namespace),
-		diag.Esc(diag.Trunc(alert.Annotations["description"], 500)),
+		diag.Esc(diag.Trunc(description, 500)),
 	)
 
 	sent := h.broadcast(baseText)
