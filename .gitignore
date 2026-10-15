@@ -9,6 +9,6 @@ kubeconfig-*.yaml
 
 .tgbot/
 .env
-*.exe.idea/
+*.exe
 *.bin
-*.bin
+.idea/

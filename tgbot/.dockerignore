@@ -1,0 +1,5 @@
+.env
+.tgbot
+*.bin
+chart
+Dockerfile

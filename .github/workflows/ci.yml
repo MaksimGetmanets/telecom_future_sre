@@ -52,6 +52,18 @@ jobs:
       - run: pip install -r llm/requirements-dev.txt
       - run: python -m pytest -q llm/tests
 
+  tgbot-test:
+    name: Тесты Telegram-бота (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: tgbot/go.mod
+          cache-dependency-path: tgbot/go.sum
+      - run: go vet ./... && go test -race ./...
+        working-directory: tgbot
+
   helm-lint:
     name: Helm lint
     runs-on: ubuntu-latest
@@ -60,7 +72,7 @@ jobs:
       - uses: azure/setup-helm@v4
       - name: Линт локальных чартов
         run: |
-          for chart in apps/chart remediator/chart llm/chart observability/alerts observability/dashboards; do
+          for chart in apps/chart remediator/chart llm/chart tgbot/chart observability/alerts observability/dashboards; do
             echo "== $chart"
             helm lint "$chart"
           done
@@ -82,7 +94,7 @@ jobs:
   images:
     name: Сборка и публикация образов (ghcr.io)
     # Образы собираются на каждом PR (проверка Dockerfile), публикуются только при пуше в develop/main
-    needs: [apps-test, remediator-test, llm-test]
+    needs: [apps-test, remediator-test, llm-test, tgbot-test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -106,6 +118,10 @@ jobs:
           - name: llm-assistant
             context: llm
             file: llm/Dockerfile
+            args: ""
+          - name: tgbot
+            context: tgbot
+            file: tgbot/Dockerfile
             args: ""
     steps:
       - uses: actions/checkout@v4

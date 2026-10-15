@@ -1,6 +1,6 @@
 # Откуда брать образы. Пусто (по умолчанию) = локальные образы :dev, как в k3d (make apps-images и т.п.).
 # На ВМ: -var image_registry=ghcr.io/<владелец_в_нижнем_регистре>, образы публикует CI (sre-gateway, sre-orders,
-# sre-remediator, sre-llm-assistant). Пакеты в ghcr должны быть публичными.
+# sre-remediator, sre-llm-assistant, sre-tgbot). Пакеты в ghcr должны быть публичными.
 
 variable "image_registry" {
   type        = string
@@ -17,7 +17,7 @@ variable "image_tag" {
 locals {
   use_registry = var.image_registry != ""
   images = {
-    for name in ["gateway", "orders", "remediator", "llm-assistant"] : name => {
+    for name in ["gateway", "orders", "remediator", "llm-assistant", "tgbot"] : name => {
       repository = "${var.image_registry}/sre-${name}"
       tag        = var.image_tag
       pullPolicy = "Always"

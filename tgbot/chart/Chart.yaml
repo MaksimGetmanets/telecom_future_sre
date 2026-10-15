@@ -1,0 +1,6 @@
+apiVersion: v2
+name: tgbot
+description: Telegram-бот SRE-платформы - алерты, ИИ-диагностика и кнопки подтверждения действий
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

@@ -20,3 +20,9 @@ policies:
     match: { alertname: ".*Latency.*", deployment: "orders" }
     action: scale
     params: { step: 1, max: 4 }
+
+  # Пример автоматического отката (по умолчанию выключен: откат меняет версию приложения, поэтому в демо он идёт
+  # только по подтверждению человека, кнопкой в Telegram). Включается раскомментированием:
+  # - name: rollback-on-bad-release
+  #   match: { alertname: "DemoBadRelease", deployment: "orders|gateway" }
+  #   action: rollback

@@ -34,10 +34,10 @@ func TestParseAndFormatEscapesEverything(t *testing.T) {
 
 func TestNotActionable(t *testing.T) {
 	cases := map[string]string{
-		"отклонено": `{"hypothesis":"x","validated":false,"rejected_reason":"namespace 'prod' не разрешён","suggested_action":{"type":"none","deployment":"orders"}}`,
-		"none":      `{"hypothesis":"x","validated":true,"suggested_action":{"type":"none","deployment":""}}`,
-		"rollback":  `{"hypothesis":"x","validated":true,"suggested_action":{"type":"rollback","deployment":"orders"}}`,
-		"без цели":  `{"hypothesis":"x","validated":true,"suggested_action":{"type":"restart","deployment":""}}`,
+		"отклонено":   `{"hypothesis":"x","validated":false,"rejected_reason":"namespace 'prod' не разрешён","suggested_action":{"type":"none","deployment":"orders"}}`,
+		"none":        `{"hypothesis":"x","validated":true,"suggested_action":{"type":"none","deployment":""}}`,
+		"неизвестное": `{"hypothesis":"x","validated":true,"suggested_action":{"type":"delete","deployment":"orders"}}`,
+		"без цели":    `{"hypothesis":"x","validated":true,"suggested_action":{"type":"restart","deployment":""}}`,
 	}
 	for name, body := range cases {
 		d, err := Parse(strings.NewReader(body))
@@ -141,5 +141,25 @@ func TestPlainTextAndTrunc(t *testing.T) {
 	}
 	if Trunc("абвгд", 3) != "абв…" || Trunc("аб", 3) != "аб" {
 		t.Fatal("Trunc режет не по символам")
+	}
+}
+
+func TestRollbackIsActionableAndRoundTrips(t *testing.T) {
+	d, err := Parse(strings.NewReader(`{"hypothesis":"плохой релиз","validated":true,"suggested_action":{"type":"rollback","deployment":"orders"}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.Actionable() {
+		t.Fatal("rollback orders должен быть исполнимым")
+	}
+	if !strings.Contains(FormatHTML(d), "rollback") {
+		t.Error("в сообщении должно быть предложенное действие")
+	}
+	cb, err := ParseCallback(EncodeExec("demo", d.Suggested))
+	if err != nil || cb.Action != "rollback" || cb.Namespace != "demo" || cb.Deployment != "orders" {
+		t.Fatalf("callback: %+v, %v", cb, err)
+	}
+	if _, err := ParseCallback("x|delete|demo|orders|0"); err == nil {
+		t.Error("неизвестное действие должно отклоняться")
 	}
 }
