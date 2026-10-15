@@ -18,7 +18,7 @@ slos:
         category: availability
       annotations:
         summary: "orders: бюджет ошибок доступности сгорает слишком быстро"
-        runbook_url: docs/runbooks/high-error-rate.md
+        runbook_url: docs/runbooks/rb-03-error-spike.md
       page_alert:
         labels:
           severity: page
@@ -41,7 +41,7 @@ slos:
         category: latency
       annotations:
         summary: "orders: бюджет задержки (p95 < 300 мс) сгорает слишком быстро"
-        runbook_url: docs/runbooks/high-latency.md
+        runbook_url: docs/runbooks/rb-02-high-latency.md
       page_alert:
         labels:
           severity: page

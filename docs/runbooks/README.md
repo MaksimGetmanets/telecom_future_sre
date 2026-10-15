@@ -1,60 +1,32 @@
 # Runbook'и
 
-Инструкции по топ-5 инцидентам demo-сервиса (`gateway → orders → PostgreSQL`, namespace `demo`).
+Инструкции по топ-5 инцидентам demo-сервиса (`gateway → orders → PostgreSQL`, namespace `demo`) плюс отдельный runbook по внешним пробам.
 Каждый алерт ссылается на свой runbook через аннотацию `runbook_url`.
 
 Что сверено с репозиторием: namespace `demo`; deployment'ы `gateway` и `orders` (по 2 реплики); statefulset `postgres`;
-лейбл подов `app.kubernetes.io/name=<имя>`; значения `severity` в алертах: `page` и `ticket`.
+лейбл подов `app.kubernetes.io/name=<имя>`; метки логов Loki `namespace`, `app`, `pod`; метки метрик приложений `application`;
+значения `severity` в алертах: `page` и `ticket`; пороги SLO из `docs/slo.md`.
 
 ## Соответствие алертов и runbook'ов
 
 | Runbook | Инцидент | Алерты | Severity | Автодействие (remediator) |
 |---|---|---|---|---|
-| [RB-01](rb-01-pod-down.md) | Под упал / не готов | `GatewayAvailabilityBurn`, `OrdersAvailabilityBurn`; **нужно добавить:** `DemoPodNotReady` | page | restart; откат вручную |
-| [RB-02](rb-02-high-latency.md) | Рост латентности p95 | `DemoHighLatency`, `OrdersLatencyBurn`, `GatewayLatencyBurn` | page | scale orders (+1, максимум 4); для gateway нет |
-| [RB-03](rb-03-error-spike.md) | Всплеск 5xx | `DemoHighErrorRate`, `OrdersAvailabilityBurn`, `GatewayAvailabilityBurn` | page | restart; откат вручную |
-| [RB-04](rb-04-memory-leak.md) | Утечка памяти / OOMKilled | `DemoMemoryHigh`; **нужно добавить:** `DemoContainerOOMKilled` | ticket / page | restart (пауза 180 с, максимум 6 в час) |
-| [RB-05](rb-05-network-dependency.md) | Деградация сети / зависимость недоступна | **нужно добавить:** `DemoProbeFailed`; косвенно `GatewayAvailabilityBurn`, `GatewayLatencyBurn` | page | нет (только уведомление), см. предупреждение в RB-05 |
+| [RB-01](rb-01-pod-down.md) | Под упал / не готов | `GatewayAvailabilityBurn`, `OrdersAvailabilityBurn`, `SyntheticProbeFailed` | page | restart (кроме проб: только уведомление); откат по кнопке |
+| [RB-02](rb-02-high-latency.md) | Рост латентности p95 | `DemoHighLatency`, `OrdersLatencyBurn`, `GatewayLatencyBurn` | page | `DemoHighLatency`: restart; `OrdersLatencyBurn`: scale orders (+1, максимум 4); gateway: нет |
+| [RB-03](rb-03-error-spike.md) | Всплеск 5xx | `DemoHighErrorRate`, `OrdersAvailabilityBurn`, `GatewayAvailabilityBurn` | page | restart; откат по кнопке |
+| [RB-04](rb-04-memory-leak.md) | Утечка памяти / OOMKilled | `DemoMemoryHigh` | ticket | restart (пауза 180 с, максимум 6 в час) |
+| [RB-05](rb-05-network-dependency.md) | Деградация сети / зависимость недоступна | `SyntheticProbeFailed`, `SyntheticSloBurn`, `*LatencyBurn` | page | нет осмысленного (рестарт не лечит сеть), см. RB-05 |
+| [Пробы](synthetic-probe-failed.md) | Внешняя проба не проходит | `SyntheticProbeFailed`, `SyntheticSloBurn` | page | нет, только уведомление |
 
-Алерты, помеченные «нужно добавить», в репозитории пока не существуют. Остальные уже заданы в `observability/slo/*.yaml`
-и `observability/alerts/templates/demo-shop.yaml`.
+Отдельного алерта на OOMKilled и на «под не готов» нет: такие случаи ловят алерты доступности и пробы, детали в RB-01 и RB-04.
 
-## Как подключить `runbook_url`
+## Как подключён `runbook_url`
 
-Сейчас в репозитории аннотации указывают на старые имена файлов. Нужно заменить:
+В каждом алерте аннотация `runbook_url` указывает на файл из этого каталога:
 
-| Было | Стало |
-|---|---|
-| `docs/runbooks/high-error-rate.md` | `docs/runbooks/rb-03-error-spike.md` |
-| `docs/runbooks/high-latency.md` | `docs/runbooks/rb-02-high-latency.md` |
-| `docs/runbooks/memory-leak.md` | `docs/runbooks/rb-04-memory-leak.md` |
+- алерты Sloth (`observability/slo/*.yaml`, результат в `observability/alerts/generated/`, пересборка `make slo-gen`): `rb-02-high-latency.md`, `rb-03-error-spike.md`;
+- правила Prometheus (`observability/alerts/templates/`): `demo-shop.yaml` (`rb-02`, `rb-03`, `rb-04`) и `synthetic.yaml` (`synthetic-probe-failed.md`).
 
-Для SLO-алертов (Sloth, `observability/slo/*.yaml`; после правки выполните `make slo-gen` и закоммитьте результат):
-
-```yaml
-alerting:
-  name: OrdersLatencyBurn
-  page_alert:
-    labels: { severity: page }
-    annotations:
-      runbook_url: https://github.com/MaksimGetmanets/telecom_future_sre/blob/main/docs/runbooks/rb-02-high-latency.md
-  ticket_alert:
-    disable: true      # в демо нужен только page
-```
-
-Для обычных Prometheus-правил (`observability/alerts/templates/`). Лейблы `namespace` и `deployment` обязательны:
-по ним remediator выбирает цель действия.
-
-```yaml
-- alert: DemoPodNotReady
-  expr: kube_pod_status_ready{namespace="demo", condition="true"} == 0
-  for: 2m
-  labels: { severity: page, namespace: demo, deployment: orders }
-  annotations:
-    summary: "Под {{ $labels.pod }} не готов"
-    runbook_url: https://github.com/MaksimGetmanets/telecom_future_sre/blob/main/docs/runbooks/rb-01-pod-down.md
-```
-
-Проверка в CI (пока не реализована): каждый алерт в `observability/` содержит `runbook_url`, и файл по ссылке существует.
-
-Шаблон нового runbook: [_template.md](_template.md).
+Новый алерт: добавьте аннотацию `runbook_url: docs/runbooks/<файл>.md` и лейблы `namespace` и `deployment` (по ним remediator выбирает цель действия).
+Структура runbook'а: симптомы и влияние, диагностика, автоматическое действие, ручные шаги, проверка восстановления, откат и риски, эскалация, действия после инцидента.
+Проверка в CI (каждый алерт содержит `runbook_url`, файл по ссылке существует) пока не реализована.
