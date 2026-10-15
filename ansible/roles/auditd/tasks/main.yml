@@ -1,0 +1,42 @@
+---
+- name: Установить auditd
+  ansible.builtin.apt:
+    name: auditd
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Формат лога auditd (имена вместо uid, имя хоста в событии)
+  ansible.builtin.lineinfile:
+    path: /etc/audit/auditd.conf
+    regexp: '^{{ item.key }}\s*='
+    line: "{{ item.key }} = {{ item.value }}"
+  loop:
+    - { key: log_format, value: "{{ auditd_log_format }}" }
+    - { key: name_format, value: "{{ auditd_name_format }}" }
+  notify: Restart auditd
+
+- name: Правила аудита
+  ansible.builtin.template:
+    src: 50-sre.rules.j2
+    dest: /etc/audit/rules.d/50-sre.rules
+    owner: root
+    group: root
+    mode: "0640"
+  notify: Load audit rules
+
+- name: Плагин audisp-syslog включён (события аудита попадают в syslog)
+  ansible.builtin.lineinfile:
+    path: /etc/audit/plugins.d/syslog.conf
+    regexp: '^{{ item.key }}\s*='
+    line: "{{ item.key }} = {{ item.value }}"
+  loop:
+    - { key: active, value: "yes" }
+    - { key: args, value: "{{ auditd_syslog_level }} {{ auditd_syslog_facility }}" }
+  notify: Restart auditd
+
+- name: Служба auditd включена и запущена
+  ansible.builtin.service:
+    name: auditd
+    state: started
+    enabled: true

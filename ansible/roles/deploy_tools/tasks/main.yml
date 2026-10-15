@@ -1,0 +1,65 @@
+---
+- name: Роль рассчитана на Debian/Ubuntu
+  ansible.builtin.assert:
+    that: ansible_facts['os_family'] == 'Debian'
+    fail_msg: "deploy_tools поддерживает только Debian/Ubuntu"
+    quiet: true
+
+- name: Пакеты для запуска make deploy на ВМ
+  ansible.builtin.apt:
+    name: "{{ deploy_tools_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Каталог для ключей apt
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ключ репозитория HashiCorp
+  ansible.builtin.get_url:
+    url: https://apt.releases.hashicorp.com/gpg
+    dest: /etc/apt/keyrings/hashicorp.asc
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Репозиторий HashiCorp
+  ansible.builtin.apt_repository:
+    repo: >-
+      deb [signed-by=/etc/apt/keyrings/hashicorp.asc]
+      https://apt.releases.hashicorp.com {{ ansible_facts['distribution_release'] }} main
+    filename: hashicorp
+    state: present
+
+- name: Установить Terraform
+  ansible.builtin.apt:
+    name: "terraform{{ '=' ~ deploy_tools_terraform_version if deploy_tools_terraform_version else '' }}"
+    state: present
+    update_cache: true
+
+# k3s кладёт /usr/local/bin/kubectl как ссылку на бинарник k3s: он читает /etc/rancher/k3s/config.yaml
+# (доступен только root), поэтому обычному пользователю "permission denied". Ставим настоящий kubectl.
+- name: Проверить, чем сейчас является /usr/local/bin/kubectl
+  ansible.builtin.stat:
+    path: /usr/local/bin/kubectl
+  register: deploy_tools_kubectl_stat
+
+- name: Убрать ссылку kubectl на k3s (get_url иначе записал бы поверх бинарника k3s)
+  ansible.builtin.file:
+    path: /usr/local/bin/kubectl
+    state: absent
+  when: deploy_tools_kubectl_stat.stat.islnk | default(false)
+
+- name: Установить настоящий kubectl той же версии, что и k3s
+  ansible.builtin.get_url:
+    url: "https://dl.k8s.io/release/{{ deploy_tools_kubectl_version }}/bin/linux/amd64/kubectl"
+    checksum: "sha256:https://dl.k8s.io/release/{{ deploy_tools_kubectl_version }}/bin/linux/amd64/kubectl.sha256"
+    dest: /usr/local/bin/kubectl
+    owner: root
+    group: root
+    mode: "0755"

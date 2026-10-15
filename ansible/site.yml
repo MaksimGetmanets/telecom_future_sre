@@ -8,3 +8,16 @@
   hosts: k3s
   roles:
     - k3s
+
+- name: Инструменты для деплоя стека на ВМ (terraform, make)
+  hosts: k3s_server
+  roles:
+    - deploy_tools
+  tags: [deploy_tools]
+
+- name: Логи и аудит хоста (rsyslog, auditd) в Loki
+  hosts: k3s
+  roles:
+    - rsyslog
+    - auditd
+  tags: [host_logs]

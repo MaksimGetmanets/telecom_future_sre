@@ -7,16 +7,18 @@ from .kube import Kube
 from .policies import Policy, PolicySet
 
 NOTIFY_STATUSES = {"executed", "dry_run", "error"}
+MANUAL_ACTIONS = ("restart", "scale")
 
 
 class Engine:
     def __init__(self, policies: PolicySet, kube: Kube, dry_run: bool, guard: Guard | None = None,
-                 notify: Callable[[dict], None] | None = None):
+                 notify: Callable[[dict], None] | None = None, assistant=None):
         self.policies = policies
         self.kube = kube
         self.dry_run = dry_run
         self.guard = guard or Guard(policies.defaults.cooldown_seconds, policies.defaults.max_actions_per_hour)
         self.notify = notify
+        self.assistant = assistant
 
     def handle(self, payload: dict) -> list[dict]:
         results = []
@@ -26,6 +28,8 @@ class Engine:
             audit.record(**result)
             if self.notify and result["status"] in NOTIFY_STATUSES:
                 self.notify(result)
+            if self.assistant and result["status"] in NOTIFY_STATUSES:
+                self.assistant.advise(alert, result)
         return results
 
     def _handle_alert(self, alert: dict) -> dict:
@@ -78,3 +82,46 @@ class Engine:
             self.kube.set_replicas(ns, dep, target)
         return done("dry_run" if self.dry_run else "executed", f"replicas {current} -> {target}",
                     replicas_from=current, replicas_to=target)
+
+    def execute_manual(self, action: str, namespace: str, deployment: str, replicas: int | None = None,
+                       source: str = "telegram") -> dict:
+        """Действие, подтверждённое человеком (кнопка в Telegram). Те же ограничения, что у автоматики:
+        белый список namespace и действий, пауза и часовой лимит, dry-run. Пишется в аудит как manual_remediation."""
+        base = {
+            "alertname": "manual", "namespace": namespace, "deployment": deployment,
+            "action": action if action in MANUAL_ACTIONS else None, "dry_run": self.dry_run,
+            "policy": "manual-confirm", "source": source, "runbook_url": None,
+        }
+
+        def done(status: str, detail: str = "", **extra) -> dict:
+            result = {**base, **extra, "status": status, "detail": detail}
+            audit.record(**{**result, "event": "manual_remediation"})
+            return result
+
+        if action not in MANUAL_ACTIONS:
+            return done("rejected", f"действие {action!r} не из белого списка {MANUAL_ACTIONS}")
+        if not namespace or not deployment:
+            return done("rejected", "не указан namespace или deployment")
+        if namespace not in self.policies.defaults.allowed_namespaces:
+            return done("skipped_namespace", f"namespace {namespace} не входит в allowed_namespaces")
+        maximum = max((int(p.params.get("max", 4)) for p in self.policies.policies if p.action == "scale"), default=4)
+        if action == "scale" and replicas is not None and not 1 <= replicas <= maximum:
+            return done("rejected", f"реплик должно быть от 1 до {maximum}, получено {replicas}")
+        reason = self.guard.check_and_record(namespace, deployment, action)
+        if reason:
+            return done("skipped_guard", reason)
+        try:
+            if action == "restart":
+                if not self.dry_run:
+                    self.kube.restart(namespace, deployment)
+                return done("dry_run" if self.dry_run else "executed", "rollout restart (по подтверждению)")
+            current = self.kube.get_replicas(namespace, deployment)
+            target = replicas if replicas is not None else min(current + 1, maximum)
+            if target == current:
+                return done("skipped_at_max", f"уже {current} реплик", replicas_from=current, replicas_to=current)
+            if not self.dry_run:
+                self.kube.set_replicas(namespace, deployment, target)
+            return done("dry_run" if self.dry_run else "executed", f"replicas {current} -> {target} (по подтверждению)",
+                        replicas_from=current, replicas_to=target)
+        except Exception as exc:
+            return done("error", f"{type(exc).__name__}: {exc}")

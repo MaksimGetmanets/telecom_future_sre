@@ -1,0 +1,5 @@
+scenario,run,started,detect_s,action_s,mttr_s,alert,action_status,recovered,notes
+latency,1,2026-10-14T18:46:21+00:00,58.5,,85.1,DemoHighLatency,,True,skipped_guard: cooldown: прошло 60 с из 180
+latency,1,2026-10-14T19:14:47+00:00,63.1,64.6,145.5,DemoHighLatency,executed,True,
+latency,2,2026-10-14T19:20:35+00:00,73.4,74.3,150.5,DemoHighLatency,executed,True,
+latency,3,2026-10-14T19:26:28+00:00,47.5,51.1,129.6,DemoHighLatency,executed,True,

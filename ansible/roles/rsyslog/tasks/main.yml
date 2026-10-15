@@ -1,0 +1,23 @@
+---
+- name: Установить rsyslog
+  ansible.builtin.apt:
+    name: rsyslog
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Конфиг пересылки логов хоста в Loki (через Alloy)
+  ansible.builtin.template:
+    src: 50-loki.conf.j2
+    dest: /etc/rsyslog.d/50-loki.conf
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "rsyslogd -N1 -f %s"
+  notify: Restart rsyslog
+
+- name: Служба rsyslog включена и запущена
+  ansible.builtin.service:
+    name: rsyslog
+    state: started
+    enabled: true

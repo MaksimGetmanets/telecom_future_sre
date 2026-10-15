@@ -3,6 +3,7 @@ prometheus:
     serviceMonitorSelectorNilUsesHelmValues: false
     podMonitorSelectorNilUsesHelmValues: false
     ruleSelectorNilUsesHelmValues: false
+    enableRemoteWriteReceiver: true
 grafana:
   additionalDataSources:
     - name: Loki

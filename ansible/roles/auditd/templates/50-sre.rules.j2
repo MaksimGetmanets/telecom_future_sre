@@ -1,0 +1,23 @@
+# {{ ansible_managed }}
+# Правила аудита: что менялось на хосте. Ключи (-k) используются для поиска в Loki: |= "key=\"sre_..."
+
+## Учётные записи и привилегии
+-w /etc/passwd -p wa -k sre_identity
+-w /etc/shadow -p wa -k sre_identity
+-w /etc/group -p wa -k sre_identity
+-w /etc/sudoers -p wa -k sre_sudo
+-w /etc/sudoers.d/ -p wa -k sre_sudo
+
+## SSH
+-w /etc/ssh/sshd_config -p wa -k sre_sshd
+-w /etc/ssh/sshd_config.d/ -p wa -k sre_sshd
+
+## Файрвол и защита от перебора
+-w /etc/ufw/ -p wa -k sre_firewall
+-w /etc/fail2ban/ -p wa -k sre_fail2ban
+
+## Конфигурация k3s (в ней токен кластера)
+-w /etc/rancher/k3s/ -p wa -k sre_k3s
+
+## Загрузка и выгрузка модулей ядра
+-a always,exit -F arch=b64 -S init_module,finit_module,delete_module -k sre_modules

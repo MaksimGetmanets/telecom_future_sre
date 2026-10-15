@@ -1,0 +1,39 @@
+image:
+  repository: llm-assistant
+  tag: dev
+  pullPolicy: IfNotPresent
+
+# namespace с приложениями: там создаётся Role только на чтение
+targetNamespace: demo
+
+openai:
+  apiKey: ""            # Terraform передаёт через TF_VAR_openai_api_key; в git не коммитим
+  model: gpt-4o-mini
+  baseUrl: https://api.openai.com/v1
+  timeout: 30
+
+# Провайдер: openai или anthropic
+provider: openai
+anthropic:
+  apiKey: ""            # Terraform передаёт через TF_VAR_anthropic_api_key
+  model: claude-haiku-5-5
+  baseUrl: https://api.anthropic.com
+
+# Без ключа сервис работает в режиме правил (model="rules")
+mock: false
+token: ""               # необязательно: Authorization: Bearer для /diagnose
+
+prometheusUrl: http://kps-kube-prometheus-stack-prometheus.monitoring.svc:9090
+lokiUrl: http://loki.monitoring.svc:3100
+# $namespace и $deployment подставляются из алерта. Проверьте названия лейблов в Loki (Explore)
+lokiSelector: '{namespace="$namespace", pod=~"$deployment-.*"}'
+
+allowedTargets: "gateway,orders"
+maxReplicas: 4
+
+serviceMonitor:
+  interval: 30s
+
+resources:
+  requests: { cpu: 20m, memory: 96Mi }
+  limits: { cpu: 300m, memory: 256Mi }

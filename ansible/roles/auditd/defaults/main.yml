@@ -1,0 +1,7 @@
+---
+# Facility, с которым плагин audisp-syslog кладёт события аудита в syslog. Дальше их пересылает rsyslog.
+auditd_syslog_facility: LOG_LOCAL6
+auditd_syslog_level: LOG_INFO
+# ENRICHED: имена пользователей и групп разворачиваются на хосте до отправки
+auditd_log_format: ENRICHED
+auditd_name_format: HOSTNAME
