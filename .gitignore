@@ -11,3 +11,4 @@ kubeconfig-*.yaml
 .env
 *.exe.idea/
 *.bin
+*.bin
