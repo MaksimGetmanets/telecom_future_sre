@@ -13,7 +13,7 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-const pythonAssistantURL = "http://127.0.0"
+const pythonAssistantURL = "http://127.0.0.1"
 
 type Handler struct {
 	bot    *tgbotapi.BotAPI
