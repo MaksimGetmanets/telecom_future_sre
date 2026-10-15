@@ -7,7 +7,7 @@ alertmanager:
       group_by: [alertname, namespace, deployment]
       routes:
         - receiver: "null"
-          matchers: ['alertname="Watchdog"']
+          matchers: ['alertname=~"Watchdog|InfoInhibitor"']  # служебные алерты kube-prometheus-stack
         # 1. Сначала в remediator для авто-исправления
         - receiver: remediator
           matchers: ['namespace="demo"']
