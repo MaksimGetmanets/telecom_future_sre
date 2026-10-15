@@ -44,6 +44,8 @@ flowchart LR
   PROM -->|правила Sloth, burn rate| AM[Alertmanager]
   AM -->|webhook| REM[remediator]
   AM -->|webhook| TG[Telegram-бот]
+  TG <-->|диагностика| LLM
+  TG -->|кнопка: restart / scale / rollback| REM
   REM -->|restart / scale| demo
   REM <-->|гипотеза| LLM[LLM-ассистент]
   REM --> TG
@@ -58,7 +60,7 @@ flowchart LR
 | `observability/` | `dashboards/` (Grafana как код), `alerts/` (правила Sloth и синтетика), `slo/` (спецификации SLO) |
 | `remediator/` | Python: webhook Alertmanager, таблица политик, предохранители, аудит |
 | `llm/` | LLM-ассистент (FastAPI) |
-| `tgbot/` | Telegram-бот на Go |
+| `tgbot/` | Telegram-бот на Go: работает в кластере (Dockerfile, Helm-чарт), чаты подключаются командой `/start` |
 | `chaos/` | сценарии Chaos Mesh (`experiments/`), внесение сбоев и замер MTTR |
 | `load/` | нагрузочные тесты k6 |
 | `terraform/` | helm-релизы всего стека |
@@ -93,9 +95,12 @@ kubectl -n demo get pods
 Необязательные секреты (без них все работает, но без Telegram и внешней LLM; значения только из окружения, в git не попадают):
 
 ```bash
-export TF_VAR_telegram_token=...  TF_VAR_telegram_chat_id=...   # уведомления remediator
-export TF_VAR_remediator_dry_run=false                          # реальные действия (по умолчанию dry-run)
+export TF_VAR_telegram_token=...                  # токен бота от @BotFather; без него бот пишет алерты в лог пода
+export TF_VAR_remediator_dry_run=false            # реальные действия (по умолчанию dry-run)
+export TF_VAR_openai_api_key=...                  # внешняя LLM (без ключа ассистент работает по правилам)
 ```
+
+Telegram: после `make up` откройте своего бота и отправьте ему `/start`, чат подключится сам (chat id вводить не нужно, см. «Telegram-бот»).
 
 После правок кода: `make apps-reload`. Остановить: `make down`.
 
@@ -133,7 +138,7 @@ chaos/fault.sh orders clear                        # снять сбой вру�
 ```
 
 Задержка: `chaos/fault.sh orders 'delayMs=600'`. Chaos Mesh: `make chaos-enable`, затем `make chaos-run SCENARIO=orders-pod-kill` (также `orders-network-delay`, `orders-cpu-stress`), аварийно `make chaos-stop`.
-Тесты: `make apps-test`, `make remediator-test`, `make load-smoke`, `make load-capacity`.
+Тесты: `make apps-test`, `make remediator-test`, `make tgbot-test`, `make load-smoke`, `make load-capacity`.
 
 ## Мониторинг и наблюдаемость
 
@@ -150,7 +155,7 @@ chaos/fault.sh orders clear                        # снять сбой вру�
 
 **Синтетические пробы.** Blackbox Exporter раз в 15 с запрашивает `GET /orders` у gateway и orders. Алерты `SyntheticProbeFailed`, `SyntheticSloBurn`.
 
-**Автоматическое восстановление (remediator).** По таблице [`remediator/policies.yaml`](remediator/policies.yaml) выполняет restart или scale. Каждое решение пишется в аудит (`GET /audit`, stdout в Loki) и в метрики `remediator_*`. Подробно: [`remediator/README.md`](remediator/README.md).
+**Автоматическое восстановление (remediator).** По таблице [`remediator/policies.yaml`](remediator/policies.yaml) выполняет restart, scale или rollback (откат на предыдущую ревизию). Каждое решение пишется в аудит (`GET /audit`, stdout в Loki) и в метрики `remediator_*`. Подробно: [`remediator/README.md`](remediator/README.md).
 
 **Результаты замеров** ([`docs/results/mttr.md`](docs/results/mttr.md), сырые данные в `.csv`). MTTR: от внесения сбоя до 5 успешных проб подряд.
 
@@ -159,12 +164,29 @@ chaos/fault.sh orders clear                        # снять сбой вру�
 | Всплеск 5xx на orders | 180 (80–290) | 95 (90–111) | 118 |
 | Рост латентности на orders | 199 (177–272) | 132 (121–136) | 146 |
 
-Алерт срабатывает через 50–80 с. SLO выполняются до 200 запросов/с (2 реплики gateway по 1 ядру). Результаты сценариев Chaos Mesh добавляются после прогонов.
+Алерт срабатывает через 50–80 с. SLO выполняются до 200 запросов/с (2 реплики gateway по 1 ядру). Результаты сценариев Chaos Mesh (pod-kill, network-delay, cpu-stress): [`docs/chaos.md`](docs/chaos.md).
+
+## Telegram-бот
+
+Бот (`tgbot/`, Go) работает **внутри кластера** (сервис `tgbot.monitoring.svc:8080`), поднимается вместе со стеком и принимает вебхук Alertmanager. Для сообщения об алерте он:
+1. сразу отправляет алерт (уведомление не теряется, даже если ассистент недоступен);
+2. запрашивает у `llm-assistant` диагноз и дописывает его в это же сообщение: гипотеза, уверенность, улики, предложенное действие;
+3. если ассистент предложил проверенное действие (`restart`, `scale` или `rollback`), показывает кнопки «Выполнить» и «Отклонить».
+Бот ничего не решает сам: нажатие вызывает `POST /execute` у remediator, а тот применяет те же ограничения, что и к автоматике (белый список namespace и действий, cooldown, лимит в час, dry-run). Результат пишется в аудит (`manual_remediation`).
+
+**Как подключить свой чат (chat id искать не нужно):**
+1. Создайте бота у [@BotFather](https://t.me/BotFather) и получите токен.
+2. `export TF_VAR_telegram_token=<токен>` и `make up` (на ВМ: `make deploy DEPLOY_APPS=yes`).
+3. Откройте бота в Telegram и отправьте `/start`: бот запомнит чат и ответит его id. Отключить: `/stop`.
+
+Без токена платформа работает полностью, а алерты и диагноз пишутся в лог пода (`kubectl -n monitoring logs deploy/tgbot`). Это удобно для проверки без Telegram: `make tgbot-fire` отправляет тестовый алерт (нужен `kubectl -n monitoring port-forward svc/tgbot 8090:8080`).
+
+Необязательные настройки: `TF_VAR_telegram_chat_id` (закрепить чат заранее, несколько через запятую), `TF_VAR_telegram_register_code` (подключение только по `/start <код>`). Список подключённых чатов хранится в поде и сбрасывается при его пересоздании, тогда достаточно снова отправить `/start`. Кнопки принимаются только из подключённых чатов и устаревают через 30 минут.
 
 ## Безопасность
 
 - **Секреты** не хранятся в git: переменные Terraform `TF_VAR_*`, ansible-vault, `.env` в `.gitignore`; в CI проверка gitleaks.
-- **Remediator безопасен по умолчанию:** режим dry-run, действует только в namespace `demo`, пауза между одинаковыми действиями 180 с, не больше 6 действий в час на deployment, потолок числа реплик, RBAC только на `deployments` в `demo`, аудит каждого решения. Webhook поддерживает токен `Authorization: Bearer` (в демо не включен).
+- **Remediator безопасен по умолчанию:** режим dry-run, действует только в namespace `demo`, пауза между одинаковыми действиями 180 с, не больше 6 действий в час на deployment, потолок числа реплик, RBAC только в `demo`: изменение `deployments`, чтение `replicasets` (для отката), аудит каждого решения. Webhook поддерживает токен `Authorization: Bearer` (в демо не включен).
 - **Chaos Mesh** бьет только по namespace с аннотацией `chaos-mesh.org/inject=enabled`: `monitoring` и `kube-system` защищены.
 - **ВМ:** вход по ssh-ключам, ufw, fail2ban, аудит входов и команд (auditd) уходит в Loki.
 - **Ручки имитации сбоев** (`/fault`, `/slow`, `/fail`, `/leak`) в demo-сервисах не защищены; в боевом режиме отключаются `FAULTS_ENABLED=false`.
@@ -179,7 +201,7 @@ Remediator сравнивает рекомендацию с решением т�
 - Без ключа ассистент работает по правилам (`model: "rules"`), платформа от него не зависит.
 - Внешний провайдер (OpenAI-совместимый API) подключается через ключ в `TF_VAR_*`; ключ в git не хранится.
 - Пример расхождения: на сбое `orders` политика перезапустила и `orders`, и `gateway`, а LLM по логам указала причину в `orders` и что restart gateway не нужен (`agrees: false`).
-- Вывод гипотезы в Telegram-сообщении: в работе.
+- Гипотеза, улики и предложенное действие дописываются в Telegram-сообщение об алерте; действие выполняется только после нажатия кнопки (см. «Telegram-бот»).
 
 ## Troubleshooting
 
@@ -191,7 +213,7 @@ Remediator сравнивает рекомендацию с решением т�
 | remediator ничего не делает, в аудите `dry_run` | деплой без `remediator_dry_run=false`: каждый `make deploy` сбрасывает флаг, экспортируйте `TF_VAR_remediator_dry_run=false` |
 | В аудите `skipped_guard` | сработали cooldown 180 с или лимит 6 действий в час. Подождите или перезапустите remediator: `kubectl -n monitoring rollout restart deploy/remediator` (счетчики в памяти) |
 | Алерты не доходят до remediator и Telegram | Alertmanager отклонил конфиг (нет секции `receivers` или опечатка): `kubectl -n monitoring logs alertmanager-kps-kube-prometheus-stack-alertmanager-0 -c alertmanager \| grep -i error` |
-| Бот принимает запрос, но сообщения нет | ошибка форматирования Markdown (`_`, `**`) или бот не слушает `:8080`; смотрите лог бота и `ss -ltnp \| grep 8080` |
+| В Telegram нет сообщений | бот работает в кластере: `kubectl -n monitoring logs deploy/tgbot`. Строка `[HINT] ни один чат не подключён`: отправьте боту `/start`. `Режим без Telegram`: не задан `TF_VAR_telegram_token`. Два экземпляра бота с одним токеном (например, старый на хосте) конфликтуют: оставьте один |
 | Chaos Mesh не применяет эксперимент | на namespace нет аннотации: `make chaos-enable`; для k3s в `terraform/values/chaos-mesh.yaml` задан runtime `containerd` |
 | `make chaos-run` отказывается стартовать | горит алерт (например `SyntheticSloBurn` после недавнего простоя), он гаснет до 30 минут; скрипт сам ждет тишины (`--wait-quiet`) |
 | Замер MTTR сильно выше обычного | пауза между прогонами меньше cooldown remediator: `--pause 200` |

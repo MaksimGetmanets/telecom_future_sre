@@ -3,6 +3,7 @@ package alert
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
+	"main/internal/chats"
 	"main/internal/diag"
 )
 
@@ -27,18 +29,29 @@ const callbackTTL = 30 * time.Minute
 const maxMessageRunes = 3900
 
 type Handler struct {
-	bot    *tgbotapi.BotAPI
-	chatId int64
+	// bot == nil: режим без Telegram, алерты и диагностика пишутся только в лог.
+	bot *tgbotapi.BotAPI
+	// chats: чаты, подключённые командой /start (и закреплённый TELEGRAM_CHAT_ID).
+	chats *chats.Store
 	// rem == nil, если REMEDIATOR_URL не задан: тогда бот только показывает диагностику, без кнопок.
 	rem *diag.Client
+	// registerCode: если задан (REGISTER_CODE), подключиться можно только командой /start <код>.
+	registerCode string
 }
 
-func NewHandler(bot *tgbotapi.BotAPI, chatId int64) *Handler {
+func NewHandler(bot *tgbotapi.BotAPI, store *chats.Store) *Handler {
 	return &Handler{
-		bot:    bot,
-		chatId: chatId,
-		rem:    diag.NewClient(os.Getenv("REMEDIATOR_URL"), os.Getenv("REMEDIATOR_TOKEN")),
+		bot:          bot,
+		chats:        store,
+		rem:          diag.NewClient(os.Getenv("REMEDIATOR_URL"), os.Getenv("REMEDIATOR_TOKEN")),
+		registerCode: strings.TrimSpace(os.Getenv("REGISTER_CODE")),
 	}
+}
+
+// sentMsg: сообщение, отправленное в конкретный чат (диагностика потом дописывается в каждое из них).
+type sentMsg struct {
+	chatID    int64
+	messageID int
 }
 
 func assistantURL() string {
@@ -74,8 +87,8 @@ func (h *Handler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 
 // sendHTML отправляет сообщение с разметкой HTML. Если Telegram отклонил разметку, шлёт тот же текст без тегов:
 // алерт не должен теряться из-за форматирования.
-func (h *Handler) sendHTML(text string, replyTo int, markup *tgbotapi.InlineKeyboardMarkup) (tgbotapi.Message, error) {
-	msg := tgbotapi.NewMessage(h.chatId, text)
+func (h *Handler) sendHTML(chatID int64, text string, replyTo int, markup *tgbotapi.InlineKeyboardMarkup) (tgbotapi.Message, error) {
+	msg := tgbotapi.NewMessage(chatID, text)
 	msg.ParseMode = tgbotapi.ModeHTML
 	msg.ReplyToMessageID = replyTo
 	if markup != nil {
@@ -91,8 +104,8 @@ func (h *Handler) sendHTML(text string, replyTo int, markup *tgbotapi.InlineKeyb
 	return sent, err
 }
 
-func (h *Handler) editHTML(messageID int, text string, markup *tgbotapi.InlineKeyboardMarkup) error {
-	edit := tgbotapi.NewEditMessageText(h.chatId, messageID, text)
+func (h *Handler) editHTML(chatID int64, messageID int, text string, markup *tgbotapi.InlineKeyboardMarkup) error {
+	edit := tgbotapi.NewEditMessageText(chatID, messageID, text)
 	edit.ParseMode = tgbotapi.ModeHTML
 	edit.ReplyMarkup = markup
 	_, err := h.bot.Send(edit)
@@ -127,36 +140,63 @@ func (h *Handler) processAlert(alert Alert) {
 		diag.Esc(diag.Trunc(alert.Annotations["description"], 500)),
 	)
 
+	sent := h.broadcast(baseText)
 	if alert.Status != "firing" {
-		if _, err := h.sendHTML(baseText, 0, nil); err != nil {
-			log.Printf("[ERROR] Ошибка отправки алерта: %v", err)
-		}
 		return
 	}
-
-	// Сначала отправляем алерт, чтобы уведомление не потерялось, даже если ассистент недоступен.
-	sent, err := h.sendHTML(baseText, 0, nil)
-	if err != nil {
-		log.Printf("[ERROR] Ошибка отправки алерта: %v", err)
-		return
-	}
-
-	// Диагностика дописывается в это же сообщение.
-	go h.requestAIDiagnosis(alert, sent.MessageID, baseText)
+	// Алерт уже отправлен, поэтому он не потеряется, даже если ассистент недоступен.
+	// Диагностика дописывается в эти же сообщения (или пишется в лог, если нет ни бота, ни подключённых чатов).
+	go h.requestAIDiagnosis(alert, sent, baseText)
 }
 
-func (h *Handler) requestAIDiagnosis(alert Alert, parentMsgID int, baseText string) {
+// broadcast отправляет сообщение во все подключённые чаты. Без бота или без подключённых чатов пишет в лог:
+// платформа должна работать и без Telegram.
+func (h *Handler) broadcast(text string) []sentMsg {
+	targets := h.chats.All()
+	if h.bot == nil || len(targets) == 0 {
+		log.Printf("[MSG] %s", oneLine(text))
+		if h.bot != nil {
+			log.Printf("[HINT] ни один чат не подключён: напишите боту /start")
+		}
+		return nil
+	}
+	var sent []sentMsg
+	for _, id := range targets {
+		m, err := h.sendHTML(id, text, 0, nil)
+		if err != nil {
+			log.Printf("[ERROR] Ошибка отправки в чат %d: %v", id, err)
+			continue
+		}
+		sent = append(sent, sentMsg{chatID: id, messageID: m.MessageID})
+	}
+	return sent
+}
+
+// Announce: сообщение всем подключённым чатам (например, о запуске бота).
+func (h *Handler) Announce(text string) { h.broadcast(text) }
+
+func oneLine(htmlText string) string {
+	var parts []string
+	for _, line := range strings.Split(diag.PlainText(htmlText), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			parts = append(parts, line)
+		}
+	}
+	return strings.Join(parts, " | ")
+}
+
+func (h *Handler) requestAIDiagnosis(alert Alert, sent []sentMsg, baseText string) {
 	jsonData, err := json.Marshal(alert)
 	if err != nil {
 		log.Printf("[ERROR] Ошибка маршалинга алерта: %v", err)
-		h.appendDiagnosisError(parentMsgID, baseText, "не удалось подготовить запрос")
+		h.appendDiagnosisError(sent, baseText, "не удалось подготовить запрос")
 		return
 	}
 
 	req, err := http.NewRequest(http.MethodPost, assistantURL(), bytes.NewReader(jsonData))
 	if err != nil {
 		log.Printf("[ERROR] Ошибка создания запроса к ИИ: %v", err)
-		h.appendDiagnosisError(parentMsgID, baseText, "не удалось создать запрос")
+		h.appendDiagnosisError(sent, baseText, "не удалось создать запрос")
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -167,7 +207,7 @@ func (h *Handler) requestAIDiagnosis(alert Alert, parentMsgID int, baseText stri
 	resp, err := (&http.Client{Timeout: 35 * time.Second}).Do(req)
 	if err != nil {
 		log.Printf("[ERROR] LLM-ассистент недоступен: %v", err)
-		h.appendDiagnosisError(parentMsgID, baseText, "ассистент недоступен")
+		h.appendDiagnosisError(sent, baseText, "ассистент недоступен")
 		return
 	}
 	defer resp.Body.Close()
@@ -175,14 +215,14 @@ func (h *Handler) requestAIDiagnosis(alert Alert, parentMsgID int, baseText stri
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		log.Printf("[ERROR] LLM-ассистент вернул HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-		h.appendDiagnosisError(parentMsgID, baseText, fmt.Sprintf("ассистент вернул HTTP %d", resp.StatusCode))
+		h.appendDiagnosisError(sent, baseText, fmt.Sprintf("ассистент вернул HTTP %d", resp.StatusCode))
 		return
 	}
 
 	d, err := diag.Parse(resp.Body)
 	if err != nil {
 		log.Printf("[ERROR] Ошибка декодирования ответа ИИ: %v", err)
-		h.appendDiagnosisError(parentMsgID, baseText, "не удалось прочитать ответ ассистента")
+		h.appendDiagnosisError(sent, baseText, "не удалось прочитать ответ ассистента")
 		return
 	}
 
@@ -190,8 +230,15 @@ func (h *Handler) requestAIDiagnosis(alert Alert, parentMsgID int, baseText stri
 	if len([]rune(text)) > maxMessageRunes {
 		text = diag.Trunc(baseText, 1000) + diag.Trunc(diag.FormatHTML(d), maxMessageRunes-1000)
 	}
-	if err := h.editHTML(parentMsgID, text, h.keyboard(alert.Labels["namespace"], d)); err != nil {
-		log.Printf("[ERROR] Не удалось обновить сообщение алерта: %v", err)
+	if len(sent) == 0 {
+		log.Printf("[DIAG] %s", oneLine(diag.FormatHTML(d)))
+		return
+	}
+	markup := h.keyboard(alert.Labels["namespace"], d)
+	for _, m := range sent {
+		if err := h.editHTML(m.chatID, m.messageID, text, markup); err != nil {
+			log.Printf("[ERROR] Не удалось обновить сообщение алерта в чате %d: %v", m.chatID, err)
+		}
 	}
 }
 
@@ -201,6 +248,9 @@ func (h *Handler) keyboard(namespace string, d diag.Diagnosis) *tgbotapi.InlineK
 		return nil
 	}
 	label := fmt.Sprintf("✅ Выполнить: %s %s", d.Suggested.Type, d.Suggested.Deployment)
+	if d.Suggested.Type == "rollback" {
+		label = fmt.Sprintf("↩️ Выполнить: rollback %s", d.Suggested.Deployment)
+	}
 	if d.Suggested.Type == "scale" {
 		label += fmt.Sprintf(" → %d", d.Suggested.Replicas)
 	}
@@ -213,14 +263,23 @@ func (h *Handler) keyboard(namespace string, d diag.Diagnosis) *tgbotapi.InlineK
 	return &m
 }
 
-func (h *Handler) appendDiagnosisError(messageID int, baseText, reason string) {
+func (h *Handler) appendDiagnosisError(sent []sentMsg, baseText, reason string) {
+	if len(sent) == 0 {
+		log.Printf("[DIAG] не удалось получить ИИ-диагностику: %s", reason)
+		return
+	}
 	text := baseText + "\n\n⚠️ <b>Не удалось получить ИИ-диагностику:</b> " + diag.Esc(reason)
-	if err := h.editHTML(messageID, text, nil); err != nil {
-		log.Printf("[ERROR] Не удалось добавить ошибку диагностики в Telegram: %v", err)
+	for _, m := range sent {
+		if err := h.editHTML(m.chatID, m.messageID, text, nil); err != nil {
+			log.Printf("[ERROR] Не удалось добавить ошибку диагностики в чат %d: %v", m.chatID, err)
+		}
 	}
 }
 
 func (h *Handler) answer(callbackID, text string) {
+	if h.bot == nil {
+		return
+	}
 	if _, err := h.bot.Request(tgbotapi.NewCallback(callbackID, text)); err != nil {
 		log.Printf("[ERROR] Не удалось ответить на нажатие кнопки: %v", err)
 	}
@@ -228,7 +287,7 @@ func (h *Handler) answer(callbackID, text string) {
 
 func (h *Handler) clearKeyboard(m *tgbotapi.Message) {
 	empty := tgbotapi.InlineKeyboardMarkup{InlineKeyboard: [][]tgbotapi.InlineKeyboardButton{}}
-	if _, err := h.bot.Request(tgbotapi.NewEditMessageReplyMarkup(h.chatId, m.MessageID, empty)); err != nil {
+	if _, err := h.bot.Request(tgbotapi.NewEditMessageReplyMarkup(m.Chat.ID, m.MessageID, empty)); err != nil {
 		log.Printf("[WARN] Не удалось убрать кнопки: %v", err)
 	}
 }
@@ -247,11 +306,11 @@ func userLabel(u *tgbotapi.User) string {
 // HandleCallback: нажатие кнопки «Выполнить» или «Отклонить» под диагностикой.
 // Бот ничего не решает сам: действие выполняет remediator со всеми своими ограничениями.
 func (h *Handler) HandleCallback(cb *tgbotapi.CallbackQuery) {
-	if cb == nil || cb.Message == nil {
+	if cb == nil || cb.Message == nil || h.bot == nil {
 		return
 	}
-	// Принимаем кнопки только из нашего чата.
-	if cb.Message.Chat == nil || cb.Message.Chat.ID != h.chatId {
+	// Принимаем кнопки только из подключённых чатов.
+	if cb.Message.Chat == nil || !h.chats.Has(cb.Message.Chat.ID) {
 		log.Printf("[WARN] Кнопка из постороннего чата отклонена (пользователь %s)", userLabel(cb.From))
 		h.answer(cb.ID, "Нет доступа")
 		return
@@ -274,7 +333,7 @@ func (h *Handler) HandleCallback(cb *tgbotapi.CallbackQuery) {
 
 	if parsed.Reject {
 		h.answer(cb.ID, "Отклонено")
-		if _, err := h.sendHTML("❌ Предложение отклонено: "+diag.Esc(who), cb.Message.MessageID, nil); err != nil {
+		if _, err := h.sendHTML(cb.Message.Chat.ID, "❌ Предложение отклонено: "+diag.Esc(who), cb.Message.MessageID, nil); err != nil {
 			log.Printf("[ERROR] Не удалось сообщить об отклонении: %v", err)
 		}
 		return
@@ -297,7 +356,54 @@ func (h *Handler) HandleCallback(cb *tgbotapi.CallbackQuery) {
 	} else {
 		text = res.FormatHTML() + "\nПодтвердил: " + diag.Esc(who)
 	}
-	if _, err := h.sendHTML(text, cb.Message.MessageID, nil); err != nil {
+	if _, err := h.sendHTML(cb.Message.Chat.ID, text, cb.Message.MessageID, nil); err != nil {
 		log.Printf("[ERROR] Не удалось сообщить результат действия: %v", err)
+	}
+}
+
+// HandleMessage: команды /start (подключить чат) и /stop (отключить). Остальные сообщения игнорируются.
+func (h *Handler) HandleMessage(m *tgbotapi.Message) {
+	if m == nil || m.Chat == nil || h.bot == nil || !m.IsCommand() {
+		return
+	}
+	chatID := m.Chat.ID
+	reply := func(text string) {
+		if _, err := h.sendHTML(chatID, text, 0, nil); err != nil {
+			log.Printf("[ERROR] Не удалось ответить на команду в чате %d: %v", chatID, err)
+		}
+	}
+	switch m.Command() {
+	case "start":
+		if h.registerCode != "" &&
+			subtle.ConstantTimeCompare([]byte(strings.TrimSpace(m.CommandArguments())), []byte(h.registerCode)) != 1 {
+			log.Printf("[WARN] /start без верного кода из чата %d (%s)", chatID, userLabel(m.From))
+			reply("Чтобы подключить чат, отправьте <code>/start КОД</code>.")
+			return
+		}
+		added, err := h.chats.Add(chatID)
+		if err != nil {
+			log.Printf("[WARN] Не удалось сохранить список чатов (чат подключён до перезапуска бота): %v", err)
+		}
+		if !added {
+			reply(fmt.Sprintf("ℹ️ Этот чат уже подключён. Chat id: <code>%d</code>", chatID))
+			return
+		}
+		log.Printf("[INFO] Подключён чат %d (%s)", chatID, userLabel(m.From))
+		reply(fmt.Sprintf("✅ <b>Чат подключён.</b>\nСюда будут приходить алерты SRE-платформы с ИИ-диагностикой и кнопками действий.\n"+
+			"Chat id: <code>%d</code>\nОтключить: /stop", chatID))
+	case "stop":
+		removed, err := h.chats.Remove(chatID)
+		if err != nil {
+			log.Printf("[WARN] Не удалось сохранить список чатов: %v", err)
+		}
+		switch {
+		case removed:
+			log.Printf("[INFO] Отключён чат %d (%s)", chatID, userLabel(m.From))
+			reply("🔕 Чат отключён. Подключить снова: /start")
+		case h.chats.Has(chatID):
+			reply("Этот чат закреплён в конфигурации бота (TELEGRAM_CHAT_ID), командой его не отключить.")
+		default:
+			reply("Этот чат и не был подключён.")
+		}
 	}
 }

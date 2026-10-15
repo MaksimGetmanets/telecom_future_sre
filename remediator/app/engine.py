@@ -7,7 +7,7 @@ from .kube import Kube
 from .policies import Policy, PolicySet
 
 NOTIFY_STATUSES = {"executed", "dry_run", "error"}
-MANUAL_ACTIONS = ("restart", "scale")
+MANUAL_ACTIONS = ("restart", "scale", "rollback")
 
 
 class Engine:
@@ -71,6 +71,8 @@ class Engine:
             if not self.dry_run:
                 self.kube.restart(ns, dep)
             return done("dry_run" if self.dry_run else "executed", "rollout restart")
+        if policy.action == "rollback":
+            return self._rollback(ns, dep, done)
         # scale
         step = int(policy.params.get("step", 1))
         maximum = int(policy.params.get("max", 4))
@@ -82,6 +84,12 @@ class Engine:
             self.kube.set_replicas(ns, dep, target)
         return done("dry_run" if self.dry_run else "executed", f"replicas {current} -> {target}",
                     replicas_from=current, replicas_to=target)
+
+    def _rollback(self, ns: str, dep: str, done, suffix: str = "") -> dict:
+        detail = self.kube.rollback(ns, dep, dry_run=self.dry_run)
+        if detail is None:
+            return done("skipped_no_previous", "нет предыдущей ревизии с другим шаблоном пода: откатываться некуда")
+        return done("dry_run" if self.dry_run else "executed", f"rollback: {detail}{suffix}")
 
     def execute_manual(self, action: str, namespace: str, deployment: str, replicas: int | None = None,
                        source: str = "telegram") -> dict:
@@ -115,6 +123,8 @@ class Engine:
                 if not self.dry_run:
                     self.kube.restart(namespace, deployment)
                 return done("dry_run" if self.dry_run else "executed", "rollout restart (по подтверждению)")
+            if action == "rollback":
+                return self._rollback(namespace, deployment, done, " (по подтверждению)")
             current = self.kube.get_replicas(namespace, deployment)
             target = replicas if replicas is not None else min(current + 1, maximum)
             if target == current:

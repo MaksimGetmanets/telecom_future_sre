@@ -1,5 +1,5 @@
 # Маршрутизация Alertmanager (второй values-файл для kube-prometheus-stack, объединяется с kps.yaml).
-# Алерты namespace=demo уходят в remediator и, через continue, в Telegram-бот (tgbot).
+# Алерты namespace=demo уходят в remediator и, через continue, в Telegram-бот (tgbot, сервис внутри кластера).
 alertmanager:
   config:
     route:
@@ -29,5 +29,5 @@ alertmanager:
             send_resolved: false
       - name: tgbot
         webhook_configs:
-          - url: http://10.0.2.15:8080/alert
+          - url: http://tgbot.monitoring.svc:8080/alert
             send_resolved: true

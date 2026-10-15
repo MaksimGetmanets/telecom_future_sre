@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 
 import yaml
 
-ACTIONS = ("restart", "scale")
+ACTIONS = ("restart", "scale", "rollback")
 
 
 @dataclass(frozen=True)

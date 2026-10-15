@@ -47,11 +47,13 @@ func Parse(r io.Reader) (Diagnosis, error) {
 	return d, nil
 }
 
-// Actionable: кнопку «Выполнить» показываем, только если ассистент предложил restart или scale
+// allowedAction: действия, которые можно выполнить кнопкой. Тот же список у remediator (POST /execute).
+func allowedAction(t string) bool { return t == "restart" || t == "scale" || t == "rollback" }
+
+// Actionable: кнопку «Выполнить» показываем, только если ассистент предложил restart, scale или rollback
 // и его предложение прошло проверку (белый список, namespace, лимит реплик).
 func (d Diagnosis) Actionable() bool {
-	return d.Validated && d.Suggested.Deployment != "" &&
-		(d.Suggested.Type == "restart" || d.Suggested.Type == "scale")
+	return d.Validated && d.Suggested.Deployment != "" && allowedAction(d.Suggested.Type)
 }
 
 // Esc экранирует текст для parse_mode=HTML. Всё, что приходит из алертов и от LLM, должно идти через него:
@@ -140,7 +142,7 @@ func ParseCallback(data string) (Callback, error) {
 		return Callback{}, fmt.Errorf("неизвестный формат кнопки")
 	}
 	action, ns, dep := parts[1], parts[2], parts[3]
-	if action != "restart" && action != "scale" {
+	if !allowedAction(action) {
 		return Callback{}, fmt.Errorf("действие %q не разрешено", action)
 	}
 	if !nameRe.MatchString(ns) || !nameRe.MatchString(dep) {
