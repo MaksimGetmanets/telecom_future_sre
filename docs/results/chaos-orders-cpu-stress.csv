@@ -1,0 +1,4 @@
+ts,scenario,run,detect_s,probe_down_s,remediation_s,recovered_s,recovered_during_chaos,alerts,audit
+2026-10-15T17:41:06,orders-cpu-stress,1,-,-,-,-,,,
+2026-10-15T17:52:09,orders-cpu-stress,2,68,21,0,457,False,GatewayAvailabilityBurn;GatewayLatencyBurn;SyntheticProbeFailed;SyntheticSloBurn,None/gateway/skipped_no_policy;None/gateway/skipped_no_policy;None/orders/skipped_no_policy;None/gateway/skipped_no_policy;restart/orders/skipped_guard;None/gateway/skipped_no_policy;None/orders/skipped_no_policy;orders/ok;restart/orders/executed;gateway/ok;restart/gateway/executed
+2026-10-15T18:09:15,orders-cpu-stress,3,-,-,0,-,,,None/gateway/skipped_no_policy;None/gateway/skipped_no_policy;None/orders/skipped_no_policy;None/gateway/skipped_no_policy;restart/orders/skipped_guard;None/gateway/skipped_no_policy;None/orders/skipped_no_policy;orders/ok;restart/orders/executed;gateway/ok;restart/gateway/executed
