@@ -1,0 +1,81 @@
+alloy:
+  configMap:
+    content: |
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      discovery.relabel "pods" {
+        targets = discovery.kubernetes.pods.targets
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "app"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        targets    = discovery.relabel.pods.output
+        forward_to = [loki.write.default.receiver]
+      }
+
+      // Логи хоста: rsyslog (роль ansible rsyslog) шлёт syslog RFC5424 по TCP на этот порт.
+      // Туда же попадают события auditd (через плагин audisp-syslog, facility local6).
+      loki.relabel "host_syslog" {
+        forward_to = []
+        rule {
+          source_labels = ["__syslog_message_hostname"]
+          target_label  = "host"
+        }
+        rule {
+          source_labels = ["__syslog_message_app_name"]
+          target_label  = "program"
+        }
+        rule {
+          source_labels = ["__syslog_message_severity"]
+          target_label  = "severity"
+        }
+        rule {
+          source_labels = ["__syslog_message_facility"]
+          target_label  = "facility"
+        }
+      }
+
+      loki.source.syslog "host" {
+        listener {
+          address       = "0.0.0.0:1514"
+          protocol      = "tcp"
+          syslog_format = "rfc5424"
+          labels        = { job = "host-syslog" }
+        }
+        relabel_rules = loki.relabel.host_syslog.rules
+        forward_to    = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://loki.monitoring.svc:3100/loki/api/v1/push"
+        }
+      }
+  # Порт приёма syslog с хоста
+  extraPorts:
+    - name: syslog
+      port: 1514
+      targetPort: 1514
+      protocol: TCP
+
+# Фиксированный ClusterIP: на него шлёт rsyslog с хоста (ansible: rsyslog_loki_target).
+# Адрес из сети сервисов k3s (10.43.0.0/16), достижим только с ноды и из кластера.
+service:
+  clusterIP: 10.43.100.100

@@ -1,0 +1,13 @@
+# Скопировать в inventory/hosts.ini и подставить свои ВМ (hosts.ini в .gitignore)
+[k3s_server]
+sre-server ansible_host=10.0.0.10
+
+[k3s_agent]
+# sre-agent-1 ansible_host=10.0.0.11
+
+[k3s:children]
+k3s_server
+k3s_agent
+
+[all:vars]
+ansible_user=ubuntu

@@ -1,0 +1,29 @@
+image:
+  repository: remediator
+  tag: dev
+  pullPolicy: IfNotPresent
+
+# true: решения только пишутся в аудит, кластер не меняется
+dryRun: true
+
+# namespace, где лежат целевые deployment'ы (там создаётся Role)
+targetNamespace: demo
+
+# Содержимое policies.yaml. Terraform подставляет файл remediator/policies.yaml
+policiesYaml: ""
+
+# URL LLM-ассистента (POST /diagnose). Пусто — советник выключен. Terraform ставит, когда задан openai_api_key
+llmAssistantUrl: ""
+
+# Необязательно: токен для вебхука (Alertmanager шлёт Authorization: Bearer ...) и Telegram
+webhookToken: ""
+telegram:
+  token: ""
+  chatId: ""
+
+serviceMonitor:
+  interval: 15s
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { cpu: 200m, memory: 192Mi }

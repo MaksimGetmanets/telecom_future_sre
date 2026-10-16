@@ -1,0 +1,7 @@
+scenario,run,started,detect_s,action_s,mttr_s,alert,action_status,recovered,notes
+errors,1,2026-10-14T13:09:57+00:00,55.8,55.8,79.7,GatewayAvailabilityBurn,dry_run,True,
+errors,2,2026-10-14T13:12:34+00:00,85.1,258.1,289.5,DemoHighErrorRate,dry_run,True,skipped_guard: cooldown: прошло 177 с из 180
+errors,3,2026-10-14T13:18:27+00:00,90.2,,179.8,DemoHighErrorRate,,True,skipped_guard: cooldown: прошло 177 с из 180
+latency,1,2026-10-14T13:24:18+00:00,69.4,,176.7,DemoHighLatency,,True,skipped_guard: cooldown: прошло 147 с из 180
+latency,2,2026-10-14T13:28:17+00:00,67.1,67.1,199.0,DemoHighLatency,dry_run,True,
+latency,3,2026-10-14T13:32:39+00:00,75.4,75.4,271.5,DemoHighLatency,dry_run,True,

@@ -1,0 +1,21 @@
+---
+- name: Проверка входных переменных
+  ansible.builtin.assert:
+    that:
+      - k3s_token | length >= 16
+      - groups['k3s_server'] | length == 1
+    fail_msg: >-
+      Задайте k3s_token (>=16 символов, через ansible-vault) и ровно один хост в группе k3s_server.
+    quiet: true
+  run_once: true
+  tags: [k3s]
+
+- name: Установка server
+  ansible.builtin.import_tasks: server.yml
+  when: inventory_hostname in groups['k3s_server']
+  tags: [k3s, k3s_server]
+
+- name: Установка agent
+  ansible.builtin.import_tasks: agent.yml
+  when: inventory_hostname in groups['k3s_agent']
+  tags: [k3s, k3s_agent]

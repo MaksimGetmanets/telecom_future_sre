@@ -1,0 +1,49 @@
+spring:
+  application:
+    name: orders
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+  datasource:
+    # В k8s значения задаёт Helm-чарт (postgres:5432)
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/orders}
+    username: ${DB_USER:orders}
+    password: ${DB_PASSWORD:orders}
+  jpa:
+    open-in-view: false
+    hibernate:
+      # Для демо схема создаётся автоматически; в проде нужны миграции (Flyway)
+      ddl-auto: update
+
+server:
+  port: ${PORT:8080}
+  shutdown: graceful
+
+faults:
+  enabled: ${FAULTS_ENABLED:true}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      # Бакет 300ms нужен для SLO "p95 < 300 мс" (le="0.3")
+      slo:
+        http.server.requests: 100ms,300ms,500ms,1s,2s
+
+# JSON-логи; trace_id и span_id попадают из MDC, куда их кладёт OpenTelemetry agent
+logging:
+  structured:
+    format:
+      console: logstash
+  level:
+    root: INFO

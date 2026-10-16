@@ -1,0 +1,68 @@
+---
+# Порядок важен: сначала разрешаем SSH, потом включаем ufw, иначе потеряем доступ.
+- name: Разрешить SSH (с rate-limit)
+  community.general.ufw:
+    rule: limit
+    port: "{{ common_ssh_port }}"
+    proto: tcp
+    src: "{{ item }}"
+    comment: ssh
+  loop: "{{ common_ufw_ssh_sources }}"
+
+- name: Доп. правила
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.port }}"
+    proto: "{{ item.proto | default('tcp') }}"
+    src: "{{ item.src | default('any') }}"
+    comment: "{{ item.comment | default(omit) }}"
+  loop: "{{ common_ufw_extra_rules }}"
+
+- name: Правила для k3s
+  when: common_ufw_k3s_enabled | bool
+  block:
+    - name: Разрешить k3s API (6443) с разрешённых адресов
+      community.general.ufw:
+        rule: allow
+        port: "6443"
+        proto: tcp
+        src: "{{ item }}"
+        comment: k3s-api
+      loop: "{{ common_k3s_api_sources }}"
+
+    - name: Kubelet и flannel от каждой ноды кластера
+      community.general.ufw:
+        rule: allow
+        port: "{{ item.1.port }}"
+        proto: "{{ item.1.proto }}"
+        src: "{{ hostvars[item.0].ansible_host | default(item.0) }}"
+        comment: "k3s-{{ item.1.name }}"
+      loop: "{{ groups['k3s'] | product([{'port': '10250', 'proto': 'tcp', 'name': 'kubelet'}, {'port': '8472', 'proto': 'udp', 'name': 'flannel'}]) | list }}"
+      loop_control:
+        label: "{{ item.0 }} {{ item.1.name }}"
+
+    - name: Трафик pod и service сетей (иначе ufw режет DNS и сервисы)
+      community.general.ufw:
+        rule: allow
+        src: "{{ item }}"
+        comment: k3s-cidr
+      loop:
+        - "{{ common_k3s_pod_cidr }}"
+        - "{{ common_k3s_service_cidr }}"
+
+- name: Политика входящих по умолчанию и включение ufw
+  community.general.ufw:
+    state: enabled
+    policy: "{{ common_ufw_default_incoming }}"
+    direction: incoming
+
+- name: Политика исходящих по умолчанию
+  community.general.ufw:
+    policy: "{{ common_ufw_default_outgoing }}"
+    direction: outgoing
+
+- name: Разрешить маршрутизацию (нужна для pod-сети k3s)
+  community.general.ufw:
+    policy: allow
+    direction: routed
+  when: common_ufw_k3s_enabled | bool

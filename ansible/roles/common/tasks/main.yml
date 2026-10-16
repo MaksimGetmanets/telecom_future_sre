@@ -1,0 +1,16 @@
+---
+- name: Пакеты
+  ansible.builtin.import_tasks: packages.yml
+  tags: [common, packages]
+
+- name: SSH ключи и харденинг
+  ansible.builtin.import_tasks: ssh.yml
+  tags: [common, ssh]
+
+- name: Файрвол ufw
+  ansible.builtin.import_tasks: ufw.yml
+  tags: [common, ufw]
+
+- name: Настройка fail2ban
+  ansible.builtin.import_tasks: fail2ban.yml
+  tags: [common, fail2ban]

@@ -1,0 +1,37 @@
+---
+common_packages:
+  - ufw
+  - fail2ban
+  - curl
+  - ca-certificates
+  - python3-apt
+
+common_ssh_user: "{{ ansible_user }}"
+# Список публичных ключей. Пустой список = ключи не трогаем и пароли НЕ отключаем
+# (защита от потери доступа).
+common_ssh_public_keys: []
+common_ssh_port: 22
+common_ssh_disable_password_auth: true
+common_ssh_permit_root_login: "no"
+
+# UFW
+common_ufw_default_incoming: deny
+common_ufw_default_outgoing: allow
+# Откуда разрешён SSH (по умолчанию отовсюду, но с limit от брутфорса)
+common_ufw_ssh_sources: ["any"]
+# Доп. порты: {port, proto, src(optional), comment}
+common_ufw_extra_rules:
+  - { port: "80", proto: tcp, comment: "http" }
+  - { port: "443", proto: tcp, comment: "https" }
+# Порты k3s открываются, если хост входит в группу k3s
+common_ufw_k3s_enabled: "{{ 'k3s' in group_names }}"
+common_k3s_pod_cidr: "10.42.0.0/16"
+common_k3s_service_cidr: "10.43.0.0/16"
+# Кто может ходить на API (6443)
+common_k3s_api_sources: ["any"]
+
+# fail2ban
+common_fail2ban_maxretry: 5
+common_fail2ban_findtime: "10m"
+common_fail2ban_bantime: "1h"
+common_fail2ban_ignoreip: ["127.0.0.1/8", "::1"]

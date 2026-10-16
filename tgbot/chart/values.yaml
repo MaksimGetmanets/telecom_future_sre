@@ -1,0 +1,25 @@
+image:
+  repository: tgbot
+  tag: dev
+  pullPolicy: IfNotPresent
+
+# Необязательно. Без токена бот работает в режиме лога: алерты и диагностика пишутся в stdout пода.
+telegram:
+  token: ""
+  # Закреплённый чат (необязательно, можно несколько через запятую). Остальные чаты подключаются командой /start.
+  chatId: ""
+
+# Если задан, чат подключается только командой /start <код>
+registerCode: ""
+
+# Адреса сервисов внутри кластера
+remediatorUrl: http://remediator.monitoring.svc:8080
+# нужен, только если на remediator задан WEBHOOK_TOKEN
+remediatorToken: ""
+llmAssistantUrl: http://llm-assistant.monitoring.svc:8080/diagnose
+# нужен, только если на ассистенте задан DIAGNOSE_TOKEN
+diagnoseToken: ""
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { cpu: 200m, memory: 128Mi }

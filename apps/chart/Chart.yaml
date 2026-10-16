@@ -1,0 +1,6 @@
+apiVersion: v2
+name: demo-shop
+description: Demo-магазин для SRE-платформы наблюдаемости (gateway, orders, postgres)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

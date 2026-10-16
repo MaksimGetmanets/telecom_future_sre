@@ -1,0 +1,44 @@
+# Маршрутизация Alertmanager (второй values-файл для kube-prometheus-stack, объединяется с kps.yaml).
+# Алерты namespace=demo уходят в remediator и, через continue, в Telegram-бот (tgbot, сервис внутри кластера).
+alertmanager:
+  config:
+    route:
+      receiver: "null"
+      group_by: [alertname, namespace, deployment]
+      routes:
+        - receiver: "null"
+          matchers: ['alertname=~"Watchdog|InfoInhibitor"']  # служебные алерты kube-prometheus-stack
+        # 1. Сначала в remediator для авто-исправления
+        - receiver: remediator
+          matchers: ['namespace="demo"']
+          group_wait: 5s
+          group_interval: 1m
+          repeat_interval: 5m
+          continue: true # позволяет алерту пойти дальше, в tgbot
+        # 2. Затем тот же алерт в tgbot для уведомления
+        - receiver: tgbot
+          matchers: ['namespace="demo"']
+          group_wait: 10s
+          group_interval: 1m
+          repeat_interval: 30m
+    # Дедупликация по причине: пока горит алерт первопричины, его симптомы не шлются отдельно
+    # (ни в Telegram, ни в remediator: лишнего рестарта gateway из-за сбоя orders больше не будет).
+    inhibit_rules:
+      # сбой orders -> gateway и внешние пробы деградируют как следствие
+      - source_matchers: ['alertname=~"DemoHighErrorRate|DemoHighLatency|OrdersAvailabilityBurn|OrdersLatencyBurn"']
+        target_matchers: ['alertname=~"GatewayAvailabilityBurn|GatewayLatencyBurn|SyntheticProbeFailed|SyntheticSloBurn"']
+        equal: [namespace]
+      # быстрый алерт пробы уже сообщил о проблеме: долгое сгорание бюджета по тому же сервису дублирует его
+      - source_matchers: ['alertname="SyntheticProbeFailed"']
+        target_matchers: ['alertname="SyntheticSloBurn"']
+        equal: [namespace, deployment]
+    receivers:
+      - name: "null"
+      - name: remediator
+        webhook_configs:
+          - url: http://remediator.monitoring.svc:8080/alert
+            send_resolved: false
+      - name: tgbot
+        webhook_configs:
+          - url: http://tgbot.monitoring.svc:8080/alert
+            send_resolved: true

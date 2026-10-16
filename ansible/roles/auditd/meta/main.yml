@@ -1,0 +1,10 @@
+---
+galaxy_info:
+  author: telecom_future_sre
+  description: auditd с правилами для SRE и отправкой событий в syslog
+  license: MIT
+  min_ansible_version: "2.14"
+  platforms:
+    - name: Ubuntu
+      versions: [jammy, noble]
+dependencies: []

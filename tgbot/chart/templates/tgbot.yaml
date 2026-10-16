@@ -1,0 +1,98 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tgbot
+  namespace: {{ .Release.Namespace }}
+type: Opaque
+stringData:
+  telegram-token: {{ .Values.telegram.token | quote }}
+  telegram-chat-id: {{ .Values.telegram.chatId | quote }}
+  register-code: {{ .Values.registerCode | quote }}
+  remediator-token: {{ .Values.remediatorToken | quote }}
+  diagnose-token: {{ .Values.diagnoseToken | quote }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tgbot
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: tgbot
+    app.kubernetes.io/part-of: sre-observability
+spec:
+  # Одна реплика и Recreate: бот опрашивает Telegram (long polling), два процесса с одним токеном конфликтуют
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tgbot
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tgbot
+      annotations:
+        checksum/config: {{ printf "%s%s%s%s%s%s%s" .Values.telegram.token .Values.telegram.chatId .Values.registerCode .Values.remediatorUrl .Values.remediatorToken .Values.llmAssistantUrl .Values.diagnoseToken | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+        - name: tgbot
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: TELEGRAM_BOT_TOKEN
+              valueFrom: { secretKeyRef: { name: tgbot, key: telegram-token } }
+            - name: TELEGRAM_CHAT_ID
+              valueFrom: { secretKeyRef: { name: tgbot, key: telegram-chat-id } }
+            - name: REGISTER_CODE
+              valueFrom: { secretKeyRef: { name: tgbot, key: register-code } }
+            - name: REMEDIATOR_TOKEN
+              valueFrom: { secretKeyRef: { name: tgbot, key: remediator-token } }
+            - name: DIAGNOSE_TOKEN
+              valueFrom: { secretKeyRef: { name: tgbot, key: diagnose-token } }
+            - name: REMEDIATOR_URL
+              value: {{ .Values.remediatorUrl | quote }}
+            - name: LLM_ASSISTANT_URL
+              value: {{ .Values.llmAssistantUrl | quote }}
+            # подключённые /start чаты живут до пересоздания пода
+            - name: CHAT_STORE_PATH
+              value: /data/chats.json
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tgbot
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: tgbot
+spec:
+  selector:
+    app.kubernetes.io/name: tgbot
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

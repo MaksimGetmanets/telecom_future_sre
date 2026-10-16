@@ -1,0 +1,80 @@
+# Синтетические пробы (Blackbox Exporter) и SLO по ним.
+# Probe: раз в 15 с GET /orders. Лейбл release=kps нужен, чтобы Prometheus из kube-prometheus-stack выбрал пробу.
+# SLI = доля неуспешных проб (probe_success=0). Цель 99,5%; окна и пороги burn-rate те же, что в
+# observability/slo/windows/demo.yaml: быстрое сгорание 17,28 (порог 0,0864) на окнах 1 м и 5 м,
+# медленное 7,2 (порог 0,036) на окнах 5 м и 30 м. Порог = burn-rate * (1 - 0,995).
+# Имена алертов не содержат Availability/Latency/ErrorBudget: политики remediator их не трогают, алерт уходит только в уведомления.
+{{- range $name := list "gateway" "orders" }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: Probe
+metadata:
+  name: synthetic-{{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    release: kps
+    app.kubernetes.io/name: sre-alerts
+    app.kubernetes.io/part-of: sre-observability
+spec:
+  interval: 15s
+  scrapeTimeout: 10s
+  module: http_2xx
+  prober:
+    url: blackbox-exporter.{{ $.Release.Namespace }}.svc:9115
+  targets:
+    staticConfig:
+      static:
+        - http://{{ $name }}.demo.svc:8080/orders
+      labels:
+        service: {{ $name }}
+{{- end }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: synthetic-blackbox
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    release: kps
+    app.kubernetes.io/name: sre-alerts
+    app.kubernetes.io/part-of: sre-observability
+spec:
+  groups:
+    - name: synthetic-recording
+      rules:
+        - record: synthetic:probe_failure:ratio_1m
+          expr: 1 - avg by (service) (avg_over_time(probe_success[1m]))
+        - record: synthetic:probe_failure:ratio_5m
+          expr: 1 - avg by (service) (avg_over_time(probe_success[5m]))
+        - record: synthetic:probe_failure:ratio_30m
+          expr: 1 - avg by (service) (avg_over_time(probe_success[30m]))
+    - name: synthetic-alerts
+      rules:
+{{- range $name := list "gateway" "orders" }}
+        - alert: SyntheticProbeFailed
+          expr: probe_success{service="{{ $name }}"} == 0
+          for: 30s
+          labels:
+            severity: page
+            namespace: demo
+            deployment: {{ $name }}
+            category: synthetic
+          annotations:
+            summary: "Проба {{ $name }}: GET /orders не отвечает 2xx"
+            runbook_url: docs/runbooks/synthetic-probe-failed.md
+        - alert: SyntheticSloBurn
+          expr: |
+            (synthetic:probe_failure:ratio_1m{service="{{ $name }}"} > 0.0864 and synthetic:probe_failure:ratio_5m{service="{{ $name }}"} > 0.0864)
+            or
+            (synthetic:probe_failure:ratio_5m{service="{{ $name }}"} > 0.036 and synthetic:probe_failure:ratio_30m{service="{{ $name }}"} > 0.036)
+          # единичный провал пробы (подвисание ВМ на пару секунд) не должен будить дежурного
+          for: 2m
+          labels:
+            severity: page
+            namespace: demo
+            deployment: {{ $name }}
+            category: synthetic
+          annotations:
+            summary: "Проба {{ $name }}: бюджет SLO 99,5% сгорает слишком быстро"
+            runbook_url: docs/runbooks/synthetic-probe-failed.md
+{{- end }}

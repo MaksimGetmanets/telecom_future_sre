@@ -1,0 +1,28 @@
+# Таблица политик remediator: алерт -> действие.
+# match: лейбл -> регулярное выражение (полное совпадение). Первая подошедшая политика выигрывает.
+# Цель действия берётся из лейблов алерта: namespace и deployment.
+defaults:
+  cooldown_seconds: 180        # пауза между одинаковыми действиями над одним deployment
+  max_actions_per_hour: 6      # потолок действий в час на один deployment
+  allowed_namespaces: [demo]   # в остальных namespace remediator ничего не трогает
+
+policies:
+  # Рост ошибок / утечка памяти -> перезапуск (лечит /fault и /leak, состояние живёт в памяти пода).
+  # DemoHighLatency тоже здесь: сбой задержки из chaos/fault.sh сидит в памяти каждого пода, добавление реплик его
+  # не снимает (старые поды остаются медленными), лечит только перезапуск.
+  - name: restart-on-errors
+    match: { alertname: "(DemoHighErrorRate|DemoHighLatency|DemoMemoryHigh|.*ErrorBudgetBurn.*|.*Availability.*)" }
+    action: restart
+
+  # Рост задержки из-за нагрузки (SLO-алерты Sloth) -> добавить реплику (до max). Только для orders: задержка gateway обычно приходит от orders,
+  # а лишние реплики gateway её не лечат (такой алерт остаётся без действия: skipped_no_policy, только Telegram).
+  - name: scale-on-latency
+    match: { alertname: ".*Latency.*", deployment: "orders" }
+    action: scale
+    params: { step: 1, max: 4 }
+
+  # Пример автоматического отката (по умолчанию выключен: откат меняет версию приложения, поэтому в демо он идёт
+  # только по подтверждению человека, кнопкой в Telegram). Включается раскомментированием:
+  # - name: rollback-on-bad-release
+  #   match: { alertname: "DemoBadRelease", deployment: "orders|gateway" }
+  #   action: rollback

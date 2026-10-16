@@ -1,0 +1,16 @@
+{{- range $path, $_ := .Files.Glob "*.json" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "dashboard-%s" (base $path | trimSuffix ".json") | lower | replace "_" "-" }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    # по этому лейблу sidecar Grafana из kube-prometheus-stack находит дашборды
+    grafana_dashboard: "1"
+    app.kubernetes.io/name: sre-dashboards
+    app.kubernetes.io/part-of: sre-observability
+data:
+  {{ base $path }}: |-
+{{ $.Files.Get $path | indent 4 }}
+{{- end }}

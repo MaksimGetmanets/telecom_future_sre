@@ -1,0 +1,49 @@
+# SLO сервиса orders (формат Sloth prometheus/v1), см. комментарий в gateway.yaml.
+version: "prometheus/v1"
+service: "orders"
+labels:
+  namespace: demo
+  deployment: orders
+slos:
+  - name: "availability"
+    objective: 99.5
+    description: "Доля запросов к /orders без ответа 5xx"
+    sli:
+      events:
+        error_query: sum(rate(http_server_requests_seconds_count{application="orders",uri=~"/orders.*",status=~"5.."}[{{.window}}]))
+        total_query: sum(rate(http_server_requests_seconds_count{application="orders",uri=~"/orders.*"}[{{.window}}]))
+    alerting:
+      name: OrdersAvailabilityBurn
+      labels:
+        category: availability
+      annotations:
+        summary: "orders: бюджет ошибок доступности сгорает слишком быстро"
+        runbook_url: docs/runbooks/rb-03-error-spike.md
+      page_alert:
+        labels:
+          severity: page
+      ticket_alert:
+        disable: true
+
+  - name: "latency"
+    objective: 95
+    description: "Не менее 95% запросов к orders быстрее 300 мс (p95 < 300 мс)"
+    sli:
+      events:
+        error_query: |
+          sum(rate(http_server_requests_seconds_count{application="orders",uri=~"/orders.*"}[{{.window}}]))
+          -
+          sum(rate(http_server_requests_seconds_bucket{application="orders",uri=~"/orders.*",le="0.3"}[{{.window}}]))
+        total_query: sum(rate(http_server_requests_seconds_count{application="orders",uri=~"/orders.*"}[{{.window}}]))
+    alerting:
+      name: OrdersLatencyBurn
+      labels:
+        category: latency
+      annotations:
+        summary: "orders: бюджет задержки (p95 < 300 мс) сгорает слишком быстро"
+        runbook_url: docs/runbooks/rb-02-high-latency.md
+      page_alert:
+        labels:
+          severity: page
+      ticket_alert:
+        disable: true

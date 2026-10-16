@@ -1,0 +1,51 @@
+# SLO сервиса gateway (формат Sloth prometheus/v1). Правила генерируются командой `make slo-gen`.
+# SLI считаются только по бизнес-ручкам /orders*: /actuator, /slow, /fail, /leak в статистику не попадают.
+# Лейблы namespace и deployment попадают во все сгенерированные правила и алерты: по ним remediator выбирает цель.
+version: "prometheus/v1"
+service: "gateway"
+labels:
+  namespace: demo
+  deployment: gateway
+slos:
+  - name: "availability"
+    objective: 99.5
+    description: "Доля запросов к /orders без ответа 5xx"
+    sli:
+      events:
+        error_query: sum(rate(http_server_requests_seconds_count{application="gateway",uri=~"/orders.*",status=~"5.."}[{{.window}}]))
+        total_query: sum(rate(http_server_requests_seconds_count{application="gateway",uri=~"/orders.*"}[{{.window}}]))
+    alerting:
+      name: GatewayAvailabilityBurn
+      labels:
+        category: availability
+      annotations:
+        summary: "gateway: бюджет ошибок доступности сгорает слишком быстро"
+        runbook_url: docs/runbooks/rb-03-error-spike.md
+      page_alert:
+        labels:
+          severity: page
+      ticket_alert:
+        disable: true
+
+  - name: "latency"
+    objective: 95
+    description: "Не менее 95% запросов к /orders быстрее 300 мс (p95 < 300 мс)"
+    sli:
+      events:
+        error_query: |
+          sum(rate(http_server_requests_seconds_count{application="gateway",uri=~"/orders.*"}[{{.window}}]))
+          -
+          sum(rate(http_server_requests_seconds_bucket{application="gateway",uri=~"/orders.*",le="0.3"}[{{.window}}]))
+        total_query: sum(rate(http_server_requests_seconds_count{application="gateway",uri=~"/orders.*"}[{{.window}}]))
+    alerting:
+      name: GatewayLatencyBurn
+      labels:
+        category: latency
+      annotations:
+        summary: "gateway: бюджет задержки (p95 < 300 мс) сгорает слишком быстро"
+        runbook_url: docs/runbooks/rb-02-high-latency.md
+      page_alert:
+        labels:
+          severity: page
+      ticket_alert:
+        disable: true

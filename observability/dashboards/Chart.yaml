@@ -1,0 +1,5 @@
+apiVersion: v2
+name: sre-dashboards
+description: Дашборды Grafana как код. Каждый *.json в этой папке превращается в ConfigMap, который подхватывает sidecar Grafana
+type: application
+version: 0.1.0

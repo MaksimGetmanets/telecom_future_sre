@@ -1,0 +1,9 @@
+---
+- name: Restart auditd
+  ansible.builtin.service:
+    name: auditd
+    state: restarted
+
+- name: Load audit rules
+  ansible.builtin.command: augenrules --load
+  changed_when: true

@@ -1,0 +1,43 @@
+---
+- name: Каталог конфигурации k3s
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Конфиг k3s agent
+  ansible.builtin.template:
+    src: config-agent.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart k3s-agent
+
+- name: Скачать установщик k3s
+  ansible.builtin.get_url:
+    url: "{{ k3s_install_url }}"
+    dest: /usr/local/bin/k3s-install.sh
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Установить k3s agent
+  ansible.builtin.command: /usr/local/bin/k3s-install.sh
+  args:
+    creates: /usr/local/bin/k3s
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+    INSTALL_K3S_EXEC: agent
+  notify: Restart k3s-agent
+
+- name: Применить handlers
+  ansible.builtin.meta: flush_handlers
+
+- name: Служба k3s agent запущена
+  ansible.builtin.service:
+    name: k3s-agent
+    state: started
+    enabled: true

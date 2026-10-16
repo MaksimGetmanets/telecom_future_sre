@@ -1,0 +1,47 @@
+# ВРЕМЕННЫЕ алерты, чтобы собрать цепочку алерт -> Telegram/remediator до появления SLO-алертов Sloth.
+# Договорённость по лейблам: alertname, namespace=demo, deployment (статический), severity; аннотация runbook_url.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: demo-shop-interim
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: sre-alerts
+spec:
+  groups:
+    - name: demo-shop-interim
+      rules:
+        - alert: DemoHighErrorRate
+          expr: |
+            sum(rate(http_server_requests_seconds_count{application="orders",uri=~"/orders.*",status=~"5.."}[1m]))
+              / sum(rate(http_server_requests_seconds_count{application="orders",uri=~"/orders.*"}[1m])) > 0.2
+          for: 30s
+          labels:
+            severity: page
+            namespace: demo
+            deployment: orders
+          annotations:
+            summary: "Доля 5xx у orders выше 20%"
+            runbook_url: docs/runbooks/rb-03-error-spike.md
+        - alert: DemoHighLatency
+          expr: |
+            histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{application="orders",uri=~"/orders.*"}[1m]))) > 0.3
+          for: 30s
+          labels:
+            severity: page
+            namespace: demo
+            deployment: orders
+          annotations:
+            summary: "p95 задержки orders выше 300 мс"
+            runbook_url: docs/runbooks/rb-02-high-latency.md
+        - alert: DemoMemoryHigh
+          expr: |
+            max(jvm_memory_used_bytes{application="orders",id="G1 Old Gen"} / jvm_memory_max_bytes{application="orders",id="G1 Old Gen"}) > 0.8
+          for: 1m
+          labels:
+            severity: ticket
+            namespace: demo
+            deployment: orders
+          annotations:
+            summary: "Старое поколение кучи orders заполнено более чем на 80%"
+            runbook_url: docs/runbooks/rb-04-memory-leak.md
