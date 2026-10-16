@@ -226,4 +226,4 @@ Remediator сравнивает рекомендацию с решением т�
 
 ## Видео-демо
 
-[видео-демо с демонстрацией инцидента и автоматического восстановления](https://drive.google.com/file/d/1TIwy8N2Nc_IEzpUnxqO_p2DB8o7GFVnA/view?usp=share_link) 
+[видео-демо с демонстрацией инцидента и автоматического восстановления](https://drive.google.com/file/d/13wZKGMLIchgwVt3np617B0XmXup9U4LS/view?usp=share_link) 
